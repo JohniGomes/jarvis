@@ -72,7 +72,7 @@
   .top .meta b { color: var(--text); }
   .top .signout { font-size: 12px; color: var(--text-faint); cursor: pointer; text-decoration: underline; margin-left: 10px; }
 
-  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; }
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 20px; }
   .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
   .kpi .val { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
   .kpi .lbl { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
@@ -86,20 +86,23 @@
   select { font-family: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
 
   .table-scroll { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; min-width: 980px; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   thead th { position: sticky; top: 0; background: var(--surface-2); z-index: 1; }
-  th, td { padding: 10px 14px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
-  th:first-child, td:first-child { text-align: left; }
+  th, td { padding: 7px 6px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; white-space: normal; }
   th:nth-child(2), td:nth-child(2) { text-align: left; }
-  th { font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; user-select: none; }
+  #mainTable th:nth-child(1), #mainTable td:nth-child(1) { width: 21%; }
+  #mainTable th:nth-child(2), #mainTable td:nth-child(2) { width: 11%; }
+  #mainTable th:nth-child(n+3), #mainTable td:nth-child(n+3) { width: 8.5%; }
+  th { font-size: 10px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; user-select: none; }
   th.sorted { color: var(--accent-ink); }
-  th .arrow { display: inline-block; margin-left: 3px; opacity: 0.6; font-size: 10px; }
-  td { font-variant-numeric: tabular-nums; font-size: 13.5px; }
+  th .arrow { display: inline-block; margin-left: 2px; opacity: 0.6; font-size: 9px; }
+  td { font-variant-numeric: tabular-nums; font-size: 12px; }
   tbody tr:hover { background: var(--row-hover); }
-  td.name { font-variant-numeric: normal; font-weight: 600; }
-  td.name .sub { display: block; font-weight: 400; font-size: 11.5px; color: var(--text-faint); margin-top: 1px; }
+  td.name { font-variant-numeric: normal; font-weight: 600; font-size: 13px; }
+  td.name .sub { display: block; font-weight: 400; font-size: 11px; color: var(--text-faint); margin-top: 1px; white-space: normal; }
 
-  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 7px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px 2px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
   .pill .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
   .pill--online { background: var(--good-soft); color: var(--good); }
   .pill--online .dot { background: var(--good); }
@@ -108,9 +111,9 @@
   .pill--none { background: var(--neutral-pill); color: var(--neutral-pill-ink); }
   .pill--none .dot { background: var(--neutral-pill-ink); }
 
-  .bar-cell { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-  .bar-track { width: 46px; height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; flex: none; }
-  .bar-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+  .bar-cell { display: flex; align-items: center; gap: 5px; justify-content: flex-end; }
+  .bar-track { width: 22px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; flex: none; }
+  .bar-fill { height: 100%; background: var(--accent); border-radius: 2px; }
 
   .empty-row td { text-align: center; color: var(--text-muted); padding: 28px; font-size: 13.5px; }
 
@@ -127,7 +130,8 @@
 
   footer.pagefoot { margin-top: 18px; font-size: 12px; color: var(--text-faint); text-align: center; }
 
-  @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 900px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 560px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 520px) {
     .wrap { padding: 20px 14px 60px; } h1 { font-size: 21px; } .top .meta { text-align: left; }
   }
@@ -188,13 +192,13 @@
         <thead>
           <tr>
             <th data-key="nome">Entregador</th>
-            <th data-key="d0status">Status hoje (D0)</th>
+            <th data-key="d0status" title="Status hoje (D0)">Status</th>
             <th data-key="turnos">Turnos</th>
             <th data-key="pedidos">Pedidos</th>
-            <th data-key="corridas_ofertadas">Ofertadas</th>
-            <th data-key="rejeitadas">Rejeitadas</th>
-            <th data-key="canceladas">Canceladas</th>
-            <th data-key="rotas">Rotas</th>
+            <th data-key="corridas_ofertadas" title="Corridas ofertadas">Ofert.</th>
+            <th data-key="rejeitadas" title="Corridas rejeitadas">Rejeit.</th>
+            <th data-key="canceladas" title="Corridas canceladas">Cancel.</th>
+            <th data-key="rotas" title="Corridas completadas">Rotas</th>
             <th data-key="taxa_aceite_pct">% Aceite</th>
             <th data-key="tempo_online_pct">% Online</th>
           </tr>
@@ -208,6 +212,7 @@
     <summary><span>Como os n&uacute;meros s&atilde;o calculados &middot; limita&ccedil;&otilde;es do cruzamento</span></summary>
     <div class="note__body">
       <p><b>D-1 (desempenho):</b> soma dos turnos do per&iacute;odo selecionado. <code>% Aceite</code> = corridas aceitas &divide; corridas ofertadas. <code>% Online</code> = tempo dispon&iacute;vel absoluto &divide; dura&ccedil;&atilde;o escalada. <code>Rotas</code> = corridas completadas.</p>
+      <p><b>Ader&ecirc;ncia:</b> tempo online realizado &divide; (vagas esperadas da subpra&ccedil;a &times; dura&ccedil;&atilde;o do turno), somado por subpra&ccedil;a+turno &uacute;nico. As vagas esperadas por regi&atilde;o est&atilde;o fixas no c&oacute;digo (constante <code>VAGAS_ESPERADAS</code>).</p>
       <p><b>D0 (status ao vivo):</b> reflete o &uacute;ltimo snapshot salvo na aba D0 &mdash; s&oacute; entregadores que estavam vis&iacute;veis nas abas de status no momento da extra&ccedil;&atilde;o aparecem com Online/Offline; os demais mostram "Sem dado hoje".</p>
       <p id="unmatchedNote"></p>
     </div>
@@ -304,8 +309,45 @@
 
   function toSeconds(t) {
     if (!t) return 0;
-    var parts = String(t).split(':').map(Number);
-    return parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
+    // aceita "HH:MM:SS" puro ou qualquer string que contenha esse padrão
+    // (ex: um Date serializado tipo "1899-12-30T02:59:00.000Z")
+    var m = String(t).match(/(\d{1,2}):(\d{2}):(\d{2})/);
+    if (!m) return 0;
+    return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+  }
+
+  var VAGAS_ESPERADAS = {
+    'TATUAPE - SP': 24,
+    'ITAIM E BROOKLIN E INDIANAPOLIS - SP': 62,
+    'MOOCA - SP': 31,
+    'PERDIZES - SP': 48,
+    'PINHEIROS - SP': 62,
+    'SAO PAULO': 30,
+    'ACLIMACAO - SP': 48,
+  };
+
+  function subpracaKey(r) {
+    var sp = (r.sub_praca || '').trim().toUpperCase();
+    return sp || 'SAO PAULO';
+  }
+
+  // Aderência = tempo online realizado ÷ (vagas esperadas da subpraça × duração do turno),
+  // somado por grupo único de subpraça+turno (não por linha/pessoa).
+  function computeAderencia(rows) {
+    var groupDur = {};
+    var tempoRealizado = 0;
+    rows.forEach(function (r) {
+      var key = subpracaKey(r) + '|' + r.periodo;
+      groupDur[key] = toSeconds(r.duracao_do_periodo);
+      tempoRealizado += toSeconds(r.tempo_disponivel_absoluto);
+    });
+    var tempoEsperado = 0;
+    Object.keys(groupDur).forEach(function (key) {
+      var sp = key.split('|')[0];
+      var vagas = VAGAS_ESPERADAS[sp] || 0;
+      tempoEsperado += vagas * groupDur[key];
+    });
+    return tempoEsperado ? Math.round((100 * tempoRealizado / tempoEsperado) * 100) / 100 : 0;
   }
 
   function normName(name) {
@@ -467,6 +509,7 @@
       { key: 'taxa_conclusao_pct', label: 'Taxa Conclusão', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; } },
       { key: 'taxa_aceite_pct', label: '% Taxa de Aceite', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; } },
       { key: 'tempo_online_pct', label: 'Tempo online', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; } },
+      { key: 'aderencia_pct', label: 'Aderência', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; } },
       { key: 'entregadores', label: 'Entregadores', fmt: function (v) { return v.toLocaleString('pt-BR'); } },
     ];
     var kpiRow = document.getElementById('kpiRow');
@@ -525,6 +568,7 @@
     var d0ById = aggregateD0(RAW_D0);
     merged = buildMerged(d1ById, d0ById);
     kpis = computeKpis(d1ById);
+    kpis.aderencia_pct = computeAderencia(d1Rows);
     renderKpis();
     renderTable();
 
