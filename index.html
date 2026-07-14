@@ -390,7 +390,6 @@
       var turnos = rs.length;
       var pedidos = 0, ofertadas = 0, aceitas = 0, rejeitadas = 0, completadas = 0, canceladas = 0, dur = 0, abs = 0;
       var subpracas = {};
-      var groupDur = {}; // aderência individual: só os grupos (subpraça+turno) dessa pessoa
       rs.forEach(function (r) {
         pedidos += Number(r.numero_de_pedidos_aceitos_e_concluidos) || 0;
         ofertadas += Number(r.numero_de_corridas_ofertadas) || 0;
@@ -401,13 +400,12 @@
         dur += toSeconds(r.duracao_do_periodo);
         abs += toSeconds(r.tempo_disponivel_absoluto);
         if (r.sub_praca) subpracas[r.sub_praca] = true;
-        groupDur[subpracaKey(r) + '|' + r.periodo] = toSeconds(r.duracao_do_periodo);
       });
-      var tempoEsperadoPessoa = 0;
-      Object.keys(groupDur).forEach(function (gk) {
-        var sp = gk.split('|')[0];
-        tempoEsperadoPessoa += (VAGAS_ESPERADAS[sp] || 0) * groupDur[gk];
-      });
+      // aderência individual: tempo realizado ÷ tempo esperado, onde o
+      // esperado é só a soma da duração dos turnos dessa pessoa (sem vagas
+      // da região - isso é só pro KPI de topo). Ex.: 5h online em 5 turnos
+      // de 3h (15h esperadas) = 33%.
+      var tempoEsperadoPessoa = dur;
       out[key] = {
         nome: rs[0].pessoa_entregadora,
         turnos: turnos,
