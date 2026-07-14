@@ -1,14 +1,22 @@
+// ============================================================================
+// IMPORTANTE: troque o valor abaixo SÓ AQUI, direto no editor do Apps Script
+// (script.google.com) — NUNCA suba o valor real desse arquivo pro GitHub.
+// A cópia deste arquivo no repositório deve continuar com o placeholder
+// 'TROQUE_AQUI', senão a chave de acesso fica pública pra qualquer pessoa
+// que ver o repositório.
+// ============================================================================
+var ACCESS_KEY = 'TROQUE_AQUI';
+
 function doGet(e) {
   try {
     var providedKey = e.parameter.key || '';
-    var expectedKey = PropertiesService.getScriptProperties().getProperty('ACCESS_KEY');
-    if (!expectedKey) {
+    if (ACCESS_KEY === 'TROQUE_AQUI') {
       throw new Error(
-        'ACCESS_KEY não configurada. Vá em Configurações do projeto (engrenagem) ' +
-        '> Propriedades do script > Adicionar propriedade do script, nome ACCESS_KEY.'
+        'ACCESS_KEY ainda não foi definida. Edite a constante ACCESS_KEY no topo ' +
+        'deste arquivo, direto no editor do Apps Script (script.google.com).'
       );
     }
-    if (providedKey !== expectedKey) {
+    if (providedKey !== ACCESS_KEY) {
       return jsonOutput({ error: 'unauthorized' });
     }
 

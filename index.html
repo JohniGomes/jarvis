@@ -218,6 +218,11 @@
 
 <script>
 (function () {
+  // URL do Web App do Apps Script (não é secreta - só a chave é). Depois de
+  // implantar, cole a URL aqui pra já vir preenchida pra qualquer pessoa que
+  // abrir a página pela primeira vez.
+  var DEFAULT_APPS_SCRIPT_URL = '';
+
   var LS_URL_KEY = 'entrego_dashboard_url';
   var SS_ACCESS_KEY = 'entrego_dashboard_key';
 
@@ -229,7 +234,7 @@
   var gateErr = document.getElementById('gateErr');
   var gateLoading = document.getElementById('gateLoading');
 
-  var savedUrl = localStorage.getItem(LS_URL_KEY);
+  var savedUrl = localStorage.getItem(LS_URL_KEY) || DEFAULT_APPS_SCRIPT_URL;
   if (savedUrl) urlInput.value = savedUrl;
 
   function showError(msg) {
