@@ -35,10 +35,6 @@ function doGet(e) {
     var headers = values[0].map(function (h) { return String(h).trim(); });
     var tz = Session.getScriptTimeZone();
 
-    // colunas que o Sheets costuma converter pra Date/hora internamente
-    var TIME_COLUMNS = ['duracao_do_periodo', 'tempo_disponivel_absoluto'];
-    var DATE_COLUMNS = ['data_do_periodo'];
-
     var rows = [];
     for (var i = 1; i < values.length; i++) {
       var obj = {};
@@ -46,13 +42,7 @@ function doGet(e) {
         var h = headers[j];
         var val = values[i][j];
         if (val instanceof Date) {
-          if (TIME_COLUMNS.indexOf(h) !== -1) {
-            val = Utilities.formatDate(val, tz, 'HH:mm:ss');
-          } else if (DATE_COLUMNS.indexOf(h) !== -1) {
-            val = Utilities.formatDate(val, tz, 'dd/MM/yyyy');
-          } else {
-            val = Utilities.formatDate(val, tz, 'dd/MM/yyyy HH:mm:ss');
-          }
+          val = formatSheetDate(val, tz);
         }
         obj[h] = val;
       }
@@ -63,6 +53,19 @@ function doGet(e) {
   } catch (err) {
     return jsonOutput({ error: String(err) });
   }
+}
+
+// O Sheets guarda valores "só hora" (duração, tempo disponível) como uma
+// data-hora no dia 30/12/1899 (o epoch interno dele). Datas de verdade caem
+// em outro dia. Detectando pelo VALOR em vez do nome da coluna, isso funciona
+// não importa como a coluna acabou sendo nomeada na planilha.
+function formatSheetDate(val, tz) {
+  var isTimeOfDay = val.getFullYear() === 1899 && val.getMonth() === 11 && val.getDate() === 30;
+  if (isTimeOfDay) {
+    return Utilities.formatDate(val, tz, 'HH:mm:ss');
+  }
+  var hasTime = val.getHours() !== 0 || val.getMinutes() !== 0 || val.getSeconds() !== 0;
+  return Utilities.formatDate(val, tz, hasTime ? 'dd/MM/yyyy HH:mm:ss' : 'dd/MM/yyyy');
 }
 
 function jsonOutput(payload) {

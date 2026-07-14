@@ -91,9 +91,9 @@
   th, td { padding: 7px 6px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line); }
   th:first-child, td:first-child { text-align: left; white-space: normal; }
   th:nth-child(2), td:nth-child(2) { text-align: left; }
-  #mainTable th:nth-child(1), #mainTable td:nth-child(1) { width: 21%; }
-  #mainTable th:nth-child(2), #mainTable td:nth-child(2) { width: 11%; }
-  #mainTable th:nth-child(n+3), #mainTable td:nth-child(n+3) { width: 8.5%; }
+  #mainTable th:nth-child(1), #mainTable td:nth-child(1) { width: 19%; }
+  #mainTable th:nth-child(2), #mainTable td:nth-child(2) { width: 10%; }
+  #mainTable th:nth-child(n+3), #mainTable td:nth-child(n+3) { width: 7.9%; }
   th { font-size: 10px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; user-select: none; }
   th.sorted { color: var(--accent-ink); }
   th .arrow { display: inline-block; margin-left: 2px; opacity: 0.6; font-size: 9px; }
@@ -201,6 +201,7 @@
             <th data-key="rotas" title="Corridas completadas">Rotas</th>
             <th data-key="taxa_aceite_pct">% Aceite</th>
             <th data-key="tempo_online_pct">% Online</th>
+            <th data-key="aderencia_pct" title="Tempo online ÷ (vagas esperadas × duração dos turnos dessa pessoa)">Ader&ecirc;ncia</th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -389,6 +390,7 @@
       var turnos = rs.length;
       var pedidos = 0, ofertadas = 0, aceitas = 0, rejeitadas = 0, completadas = 0, canceladas = 0, dur = 0, abs = 0;
       var subpracas = {};
+      var groupDur = {}; // aderência individual: só os grupos (subpraça+turno) dessa pessoa
       rs.forEach(function (r) {
         pedidos += Number(r.numero_de_pedidos_aceitos_e_concluidos) || 0;
         ofertadas += Number(r.numero_de_corridas_ofertadas) || 0;
@@ -399,6 +401,12 @@
         dur += toSeconds(r.duracao_do_periodo);
         abs += toSeconds(r.tempo_disponivel_absoluto);
         if (r.sub_praca) subpracas[r.sub_praca] = true;
+        groupDur[subpracaKey(r) + '|' + r.periodo] = toSeconds(r.duracao_do_periodo);
+      });
+      var tempoEsperadoPessoa = 0;
+      Object.keys(groupDur).forEach(function (gk) {
+        var sp = gk.split('|')[0];
+        tempoEsperadoPessoa += (VAGAS_ESPERADAS[sp] || 0) * groupDur[gk];
       });
       out[key] = {
         nome: rs[0].pessoa_entregadora,
@@ -411,6 +419,7 @@
         canceladas: canceladas,
         taxa_aceite_pct: ofertadas ? Math.round((100 * aceitas / ofertadas) * 100) / 100 : 0,
         tempo_online_pct: dur ? Math.round((100 * abs / dur) * 100) / 100 : 0,
+        aderencia_pct: tempoEsperadoPessoa ? Math.round((100 * abs / tempoEsperadoPessoa) * 100) / 100 : 0,
         subpracas: Object.keys(subpracas).sort(),
       };
     });
@@ -538,7 +547,7 @@
     var tbody = document.getElementById('tableBody');
     tbody.innerHTML = '';
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Nenhum entregador encontrado.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="11">Nenhum entregador encontrado.</td></tr>';
       return;
     }
     rows.forEach(function (p) {
@@ -556,7 +565,8 @@
         '<td>' + d1.canceladas.toLocaleString('pt-BR') + '</td>' +
         '<td>' + d1.rotas.toLocaleString('pt-BR') + '</td>' +
         '<td>' + barCell(d1.taxa_aceite_pct) + '</td>' +
-        '<td>' + barCell(d1.tempo_online_pct) + '</td>';
+        '<td>' + barCell(d1.tempo_online_pct) + '</td>' +
+        '<td>' + barCell(d1.aderencia_pct) + '</td>';
       tbody.appendChild(tr);
     });
   }
