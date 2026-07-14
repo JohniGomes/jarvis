@@ -41,7 +41,7 @@ function doGet(e) {
       for (var j = 0; j < headers.length; j++) {
         var h = headers[j];
         var val = values[i][j];
-        if (val instanceof Date) {
+        if (isDateValue(val)) {
           val = formatSheetDate(val, tz);
         }
         obj[h] = val;
@@ -53,6 +53,15 @@ function doGet(e) {
   } catch (err) {
     return jsonOutput({ error: String(err) });
   }
+}
+
+// O SpreadsheetApp às vezes devolve Date criado em outro "contexto" do V8,
+// e "val instanceof Date" retorna false mesmo sendo uma data de verdade
+// (dá pra confirmar pelo toString(), que só um Date de verdade produz).
+// Object.prototype.toString.call funciona entre contextos diferentes,
+// então é a checagem confiável aqui.
+function isDateValue(val) {
+  return Object.prototype.toString.call(val) === '[object Date]';
 }
 
 // O Sheets guarda valores "só hora" (duração, tempo disponível) como uma
