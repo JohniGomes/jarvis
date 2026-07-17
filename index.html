@@ -143,6 +143,13 @@
   .sim-card__result { margin-top: 14px; font-size: 14px; }
   .sim-card__result b { font-size: 20px; }
 
+  .ai-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 22px; }
+  .ai-card__row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  .ai-card__result { margin-top: 12px; font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; }
+  #aiSummaryBtn { font-family: inherit; font-weight: 700; font-size: 13px; color: #fff; background: var(--accent); border: none; border-radius: 8px; padding: 9px 16px; cursor: pointer; white-space: nowrap; }
+  #aiSummaryBtn:hover { filter: brightness(1.08); }
+  #aiSummaryBtn:disabled { opacity: 0.6; cursor: default; }
+
   .analise-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
   .analise-col h3 { font-size: 13.5px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
   .analise-col__hint { font-size: 12px; color: var(--text-muted); margin: 0 0 10px; }
@@ -275,6 +282,17 @@
           </div>
         </div>
         <div class="sim-card__result" id="simResult"></div>
+      </div>
+
+      <div class="ai-card">
+        <div class="ai-card__row">
+          <div>
+            <div class="sim-card__title">Resumo com IA</div>
+            <div class="sim-card__hint">Gera um resumo executivo em texto a partir dos n&uacute;meros acima, usando a Claude API configurada no Apps Script.</div>
+          </div>
+          <button type="button" id="aiSummaryBtn">Gerar resumo</button>
+        </div>
+        <div class="ai-card__result" id="aiSummaryResult"></div>
       </div>
 
       <div class="analise-grid">
@@ -735,6 +753,8 @@
 
   var currentAderenciaDetail = { pct: 0, esperadoSec: 0, realizadoSec: 0 };
   var currentTempoOnlinePct = 0;
+  var currentAnalysis = null;
+  var currentPeriodLabel = '';
 
   function fmtHoras(sec) {
     return (sec / 3600).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + 'h';
@@ -758,6 +778,9 @@
   function renderAnalise(analysis, aderenciaDetail, tempoOnlinePct) {
     currentAderenciaDetail = aderenciaDetail;
     currentTempoOnlinePct = tempoOnlinePct;
+    currentAnalysis = analysis;
+    document.getElementById('aiSummaryResult').innerHTML = '';
+    document.getElementById('aiSummaryBtn').disabled = false;
 
     var esperadoSec = aderenciaDetail.esperadoSec;
     var realizadoSec = aderenciaDetail.realizadoSec;
@@ -808,6 +831,44 @@
     var range = document.getElementById('simRange');
     range.value = Math.round(tempoOnlinePct);
     renderSimulator();
+  }
+
+  function buildAiPayload() {
+    var a = currentAnalysis;
+    return {
+      periodo: currentPeriodLabel,
+      aderenciaPct: currentAderenciaDetail.pct,
+      tempoOnlinePct: currentTempoOnlinePct,
+      horasEsperadas: Math.round(currentAderenciaDetail.esperadoSec / 3600),
+      totalDrivers: a.totalDrivers,
+      noShowCount: a.noShow.length,
+      noShowPct: a.totalDrivers ? Math.round(1000 * a.noShow.length / a.totalDrivers) / 10 : 0,
+      lowOnlineCount: a.lowOnline.length,
+      lowOnlinePct: a.showedUp ? Math.round(1000 * a.lowOnline.length / a.showedUp) / 10 : 0,
+      rejectionNames: a.rejectionOutliers.slice(0, 10).map(function (p) { return p.nome; }),
+    };
+  }
+
+  function requestAiSummary() {
+    var btn = document.getElementById('aiSummaryBtn');
+    var out = document.getElementById('aiSummaryResult');
+    if (!currentAnalysis) return;
+    var url = localStorage.getItem(LS_URL_KEY);
+    var key = sessionStorage.getItem(SS_ACCESS_KEY);
+    if (!url || !key) return;
+    btn.disabled = true;
+    out.innerHTML = '<span class="empty-hint">Gerando resumo…</span>';
+    fetch(url, { method: 'POST', body: JSON.stringify({ key: key, action: 'analyze', data: buildAiPayload() }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        btn.disabled = false;
+        if (res && res.error) { out.innerHTML = '<span class="empty-hint">Erro: ' + res.error + '</span>'; return; }
+        out.textContent = (res && res.text) || 'Sem resposta.';
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        out.innerHTML = '<span class="empty-hint">Erro: ' + err.message + '</span>';
+      });
   }
 
   function renderTable() {
@@ -862,6 +923,8 @@
     if (fromDate.getTime() > toDate.getTime()) { var tmp = fromDate; fromDate = toDate; toDate = tmp; }
     var prevFrom = shiftDate(fromDate, -7);
     var prevTo = shiftDate(toDate, -7);
+    var dateLabel = fromDate.getTime() === toDate.getTime() ? formatDateBR(fromDate) : (formatDateBR(fromDate) + ' – ' + formatDateBR(toDate));
+    currentPeriodLabel = dateLabel;
 
     var baseRows = RAW_D1.filter(function (r) { return inDateRange(r, fromDate, toDate); });
     var prevRows = RAW_D1.filter(function (r) { return inDateRange(r, prevFrom, prevTo); });
@@ -888,7 +951,6 @@
     renderKpis(kpisPrev);
     renderTable();
 
-    var dateLabel = fromDate.getTime() === toDate.getTime() ? formatDateBR(fromDate) : (formatDateBR(fromDate) + ' – ' + formatDateBR(toDate));
     document.getElementById('d1DateLabel').textContent = 'Desempenho de ' + dateLabel;
     document.getElementById('pageFooter').textContent = 'Cruzamento por nome entre as abas D0 e D-1 da planilha · dados de ' + dateLabel;
     var compareNote = document.getElementById('compareNote');
@@ -963,6 +1025,7 @@
       });
     });
     document.getElementById('simRange').addEventListener('input', renderSimulator);
+    document.getElementById('aiSummaryBtn').addEventListener('click', requestAiSummary);
 
     recompute();
   }

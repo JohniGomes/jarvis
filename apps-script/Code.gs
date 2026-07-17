@@ -81,3 +81,88 @@ function jsonOutput(payload) {
   return ContentService.createTextOutput(JSON.stringify(payload))
     .setMimeType(ContentService.MimeType.JSON);
 }
+
+// ============================================================================
+// Resumo com IA (aba Análise). A chave da Claude API NUNCA fica neste arquivo
+// — ela vive em "Propriedades do script" (ícone de engrenagem no editor do
+// Apps Script > Configurações do projeto > Propriedades do script), com o
+// nome CLAUDE_API_KEY. Assim ela nunca é commitada no GitHub nem aparece pro
+// navegador do usuário.
+// ============================================================================
+function doPost(e) {
+  try {
+    var body = JSON.parse((e.postData && e.postData.contents) || '{}');
+    var providedKey = body.key || '';
+    if (ACCESS_KEY === 'TROQUE_AQUI') {
+      throw new Error(
+        'ACCESS_KEY ainda não foi definida. Edite a constante ACCESS_KEY no topo ' +
+        'deste arquivo, direto no editor do Apps Script (script.google.com).'
+      );
+    }
+    if (providedKey !== ACCESS_KEY) {
+      return jsonOutput({ error: 'unauthorized' });
+    }
+
+    if (body.action === 'analyze') {
+      return jsonOutput({ text: generateAnalysisSummary(body.data || {}) });
+    }
+    return jsonOutput({ error: 'ação desconhecida: ' + body.action });
+  } catch (err) {
+    return jsonOutput({ error: String(err) });
+  }
+}
+
+function generateAnalysisSummary(data) {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('CLAUDE_API_KEY');
+  if (!apiKey) {
+    throw new Error(
+      'CLAUDE_API_KEY não configurada. No editor do Apps Script, vá em Configurações do projeto ' +
+      '(ícone de engrenagem) > Propriedades do script > Adicionar propriedade do script, com nome ' +
+      'CLAUDE_API_KEY e o valor da sua chave da Anthropic (console.anthropic.com).'
+    );
+  }
+
+  var response = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    payload: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 700,
+      messages: [{ role: 'user', content: buildAnalysisPrompt(data) }],
+    }),
+    muteHttpExceptions: true,
+  });
+
+  var status = response.getResponseCode();
+  var json = JSON.parse(response.getContentText());
+  if (status !== 200) {
+    var msg = (json.error && json.error.message) || response.getContentText();
+    throw new Error('Erro na API da Anthropic (' + status + '): ' + msg);
+  }
+  return (json.content && json.content[0] && json.content[0].text) || '';
+}
+
+function buildAnalysisPrompt(data) {
+  return [
+    'Você é um analista de operações de logística de última milha (entregadores freelancers via app).',
+    'Escreva um resumo executivo curto (no máximo 6 frases, em português do Brasil, tom direto e',
+    'prático, sem markdown) sobre o desempenho do período abaixo, destacando os problemas mais',
+    'acionáveis e terminando com uma recomendação objetiva do que priorizar primeiro.',
+    '',
+    'Período: ' + (data.periodo || 'não informado'),
+    'Aderência: ' + (data.aderenciaPct != null ? data.aderenciaPct + '%' : 'n/d'),
+    'Tempo Online do time: ' + (data.tempoOnlinePct != null ? data.tempoOnlinePct + '%' : 'n/d'),
+    'Horas esperadas no período: ' + (data.horasEsperadas != null ? data.horasEsperadas + 'h' : 'n/d'),
+    'Entregadores agendados: ' + (data.totalDrivers != null ? data.totalDrivers : 'n/d'),
+    'Não compareceram nenhum turno: ' + (data.noShowCount != null ? data.noShowCount : 'n/d') +
+      ' (' + (data.noShowPct != null ? data.noShowPct + '%' : 'n/d') + ' dos agendados)',
+    'Compareceram mas ficaram menos da metade do turno online: ' + (data.lowOnlineCount != null ? data.lowOnlineCount : 'n/d') +
+      ' (' + (data.lowOnlinePct != null ? data.lowOnlinePct + '%' : 'n/d') + ' de quem veio)',
+    'Entregadores que recusaram 90%+ das corridas ofertadas (com 5+ ofertadas): ' +
+      (data.rejectionNames && data.rejectionNames.length ? data.rejectionNames.join(', ') : 'nenhum'),
+  ].join('\n');
+}

@@ -23,6 +23,22 @@ fica gravado no repositório.
    - Quem pode acessar: **Qualquer pessoa**
    - Implantar e copie a URL que termina em `/exec`.
 
+### Opcional: resumo com IA (aba Análise)
+
+O bot&atilde;o "Gerar resumo" da aba Análise chama a Claude API a partir do
+próprio Apps Script (a chave nunca passa pelo navegador nem pelo GitHub):
+
+1. No editor do Apps Script, clique no ícone de engrenagem (**Configurações
+   do projeto**) → **Propriedades do script** → **Adicionar propriedade do
+   script**.
+2. Nome: `CLAUDE_API_KEY`. Valor: sua chave da Anthropic (gerada em
+   [console.anthropic.com](https://console.anthropic.com)).
+3. Salve e implante novamente (**Implantar → Gerenciar implantações → editar
+   → Nova versão**) para o `doPost` novo entrar em vigor.
+
+Sem essa propriedade configurada, o botão "Gerar resumo" mostra um erro
+explicando o que falta — o resto do painel funciona normalmente sem ela.
+
 ## 2. Publicar a página no GitHub Pages
 
 Este repositório já está pronto: **Settings → Pages → Branch: `main` /
