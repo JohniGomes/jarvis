@@ -298,7 +298,7 @@
       <div class="analise-grid">
         <div class="analise-col">
           <h3>N&atilde;o compareceram <span class="count-badge" id="noShowCount">0</span></h3>
-          <p class="analise-col__hint">Agendados no per&iacute;odo, mas com tempo online zerado em todos os turnos.</p>
+          <p class="analise-col__hint">Agendados no per&iacute;odo, mas com % Tempo Online abaixo de 1%.</p>
           <div class="chip-list" id="noShowList"></div>
         </div>
         <div class="analise-col">
@@ -601,17 +601,14 @@
   // Dive deep: quem agendou e nunca ficou online (não compareceu), quem
   // compareceu mas ficou menos da metade do turno online, e quem recusou
   // quase todas as corridas ofertadas.
-  function computeAnalysis(rows, d1ById) {
-    var absByPerson = {};
-    rows.forEach(function (r) {
-      var key = normName(r.pessoa_entregadora);
-      absByPerson[key] = (absByPerson[key] || 0) + toSeconds(r.tempo_disponivel_absoluto);
-    });
+  function computeAnalysis(d1ById) {
     var noShow = [], lowOnline = [], rejectionOutliers = [];
     Object.keys(d1ById).forEach(function (key) {
       var p = d1ById[key];
-      var abs = absByPerson[key] || 0;
-      if (abs <= 0) {
+      // < 1% de Tempo Online conta como não compareceu (na prática é a
+      // mesma coisa de ficar zerado - abaixo disso não vale separar de
+      // quem realmente não veio).
+      if (p.tempo_online_pct < 1) {
         noShow.push(p);
       } else if (p.tempo_online_pct < 50) {
         lowOnline.push(p);
@@ -977,7 +974,7 @@
       kpisPrev.aderencia_pct = computeAderencia(d1RowsPrev);
       kpisPrev.tempo_online_pct = computeTempoOnlineTotal(d1RowsPrev);
     }
-    var analysis = computeAnalysis(d1Rows, d1ById);
+    var analysis = computeAnalysis(d1ById);
     renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail);
     renderKpis(kpisPrev);
     renderTable();
