@@ -574,7 +574,11 @@
         // interna que não temos em outras colunas). Usar esse campo direto é
         // o que bate com o valor "% Tempo Online" oficial por pessoa.
         var esc = Number(r.tempo_disponivel_escalado);
-        if (!isNaN(esc)) { escSum += esc; escCount++; }
+        // A plataforma às vezes manda esse campo com valor esquisito (ex:
+        // 161% com 22 segundos online) — provavelmente um glitch de cálculo
+        // do lado deles. Limita em 100% pra um valor solto assim não puxar
+        // a média de ninguém pra cima artificialmente.
+        if (!isNaN(esc)) { escSum += Math.min(esc, 100); escCount++; }
         if (r.sub_praca) subpracas[r.sub_praca] = true;
       });
       out[key] = {

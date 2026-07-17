@@ -44,6 +44,7 @@ function doGet(e) {
 
     var headers = values[0].map(function (h) { return String(h).trim(); });
     var tz = Session.getScriptTimeZone();
+    var escaladoIdx = headers.indexOf('tempo_disponivel_escalado');
 
     var rows = [];
     for (var i = 1; i < values.length; i++) {
@@ -51,7 +52,13 @@ function doGet(e) {
       for (var j = 0; j < headers.length; j++) {
         var h = headers[j];
         var val = values[i][j];
-        if (isDateValue(val)) {
+        if (j === escaladoIdx && isDateValue(val)) {
+          // O Sheets às vezes lê um percentual tipo "23.12" como se fosse uma
+          // data (dia 23, mês 12) na hora de colar, porque bate com um
+          // padrão dia.mês válido. Reconstrói o número original a partir do
+          // dia/mês da data corrompida, em vez de formatar como data.
+          val = val.getDate() + (val.getMonth() + 1) / 100;
+        } else if (isDateValue(val)) {
           val = formatSheetDate(val, tz);
         }
         obj[h] = val;
