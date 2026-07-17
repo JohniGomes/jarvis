@@ -213,7 +213,7 @@
     <summary><span>Como os n&uacute;meros s&atilde;o calculados &middot; limita&ccedil;&otilde;es do cruzamento</span></summary>
     <div class="note__body">
       <p><b>D-1 (desempenho):</b> soma dos turnos do per&iacute;odo selecionado. <code>% Aceite</code> = corridas aceitas &divide; corridas ofertadas. <code>% Online</code> = tempo dispon&iacute;vel absoluto &divide; dura&ccedil;&atilde;o escalada. <code>Rotas</code> = corridas completadas.</p>
-      <p><b>Ader&ecirc;ncia:</b> tempo online realizado &divide; (vagas esperadas da subpra&ccedil;a &times; dura&ccedil;&atilde;o do turno), somado por subpra&ccedil;a+turno &uacute;nico. As vagas esperadas por regi&atilde;o est&atilde;o fixas no c&oacute;digo (constante <code>VAGAS_ESPERADAS</code>).</p>
+      <p><b>Ader&ecirc;ncia:</b> tempo online realizado &divide; (vagas esperadas &times; dura&ccedil;&atilde;o do turno), somado por subpra&ccedil;a+turno &uacute;nico. As vagas esperadas vêm direto da coluna <code>numero_minimo_de_entregadores_regulares_na_escala</code> de cada linha do D-1 (o mesmo "Regular Y" do Gestor de Escalas), então já variam por turno.</p>
       <p><b>D0 (status ao vivo):</b> reflete o &uacute;ltimo snapshot salvo na aba D0 &mdash; s&oacute; entregadores que estavam vis&iacute;veis nas abas de status no momento da extra&ccedil;&atilde;o aparecem com Online/Offline; os demais mostram "Sem dado hoje".</p>
       <p id="unmatchedNote"></p>
     </div>
@@ -317,36 +317,29 @@
     return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
   }
 
-  var VAGAS_ESPERADAS = {
-    'TATUAPE - SP': 24,
-    'ITAIM E BROOKLIN E INDIANAPOLIS - SP': 62,
-    'MOOCA - SP': 31,
-    'PERDIZES - SP': 48,
-    'PINHEIROS - SP': 62,
-    'SAO PAULO': 30,
-    'ACLIMACAO - SP': 48,
-  };
-
   function subpracaKey(r) {
     var sp = (r.sub_praca || '').trim().toUpperCase();
     return sp || 'SAO PAULO';
   }
 
-  // Aderência = tempo online realizado ÷ (vagas esperadas da subpraça × duração do turno),
-  // somado por grupo único de subpraça+turno (não por linha/pessoa).
+  // Aderência = tempo online realizado ÷ (vagas esperadas × duração do turno),
+  // somado por grupo único de subpraça+turno (não por linha/pessoa). As vagas
+  // esperadas vêm direto da coluna numero_minimo_de_entregadores_regulares_na_escala
+  // do D-1 (é o mesmo "Y" do Regular X/Y no Gestor de Escalas), então já variam
+  // certinho por turno em vez de usar uma tabela fixa por subpraça.
   function computeAderencia(rows) {
     var groupDur = {};
+    var groupVagas = {};
     var tempoRealizado = 0;
     rows.forEach(function (r) {
       var key = subpracaKey(r) + '|' + r.periodo;
       groupDur[key] = toSeconds(r.duracao_do_periodo);
+      groupVagas[key] = Number(r.numero_minimo_de_entregadores_regulares_na_escala) || 0;
       tempoRealizado += toSeconds(r.tempo_disponivel_absoluto);
     });
     var tempoEsperado = 0;
     Object.keys(groupDur).forEach(function (key) {
-      var sp = key.split('|')[0];
-      var vagas = VAGAS_ESPERADAS[sp] || 0;
-      tempoEsperado += vagas * groupDur[key];
+      tempoEsperado += groupVagas[key] * groupDur[key];
     });
     return tempoEsperado ? Math.round((100 * tempoRealizado / tempoEsperado) * 100) / 100 : 0;
   }
