@@ -126,6 +126,35 @@
   .delta--down { color: var(--critical); }
   .kpi .delta { font-size: 11px; margin-top: 4px; }
 
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .tab-btn { font-family: inherit; font-size: 13.5px; font-weight: 600; color: var(--text-muted); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+  .tab-btn.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+
+  .analise-body { padding: 18px 16px 20px; }
+  .kpis--analise { grid-template-columns: repeat(5, 1fr); margin-bottom: 18px; }
+
+  .sim-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 22px; }
+  .sim-card__row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  .sim-card__title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .sim-card__hint { font-size: 12.5px; color: var(--text-muted); max-width: 480px; }
+  .sim-card__control { display: flex; align-items: center; gap: 10px; min-width: 220px; }
+  .sim-card__control input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .sim-card__val { font-variant-numeric: tabular-nums; font-weight: 700; min-width: 42px; text-align: right; }
+  .sim-card__result { margin-top: 14px; font-size: 14px; }
+  .sim-card__result b { font-size: 20px; }
+
+  .analise-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .analise-col h3 { font-size: 13.5px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+  .analise-col__hint { font-size: 12px; color: var(--text-muted); margin: 0 0 10px; }
+  .count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; font-weight: 700; }
+  .mini-table { width: 100%; border-collapse: collapse; }
+  .mini-table th { font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); text-align: right; padding: 5px 4px; border-bottom: 1px solid var(--line); }
+  .mini-table th:first-child, .mini-table td:first-child { text-align: left; }
+  .mini-table td { font-size: 12px; padding: 5px 4px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
+  .empty-hint { font-size: 12.5px; color: var(--text-faint); padding: 6px 0; }
+
+  @media (max-width: 900px) { .kpis--analise { grid-template-columns: repeat(2, 1fr); } .analise-grid { grid-template-columns: 1fr; } }
+
   details.note { margin-top: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
   details.note summary { cursor: pointer; padding: 13px 16px; font-size: 13.5px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); }
   details.note summary::-webkit-details-marker { display: none; }
@@ -181,7 +210,12 @@
 
   <section class="kpis" id="kpiRow"></section>
 
-  <section class="panel">
+  <div class="tabs" id="viewTabs">
+    <button type="button" class="tab-btn active" data-view="desempenho">Desempenho por entregador</button>
+    <button type="button" class="tab-btn" data-view="analise">An&aacute;lise</button>
+  </div>
+
+  <section class="panel" id="viewDesempenho">
     <div class="panel__bar">
       <span class="panel__title">Desempenho por entregador</span>
       <div class="date-range">
@@ -219,6 +253,57 @@
         </thead>
         <tbody id="tableBody"></tbody>
       </table>
+    </div>
+  </section>
+
+  <section class="panel" id="viewAnalise" hidden>
+    <div class="panel__bar">
+      <span class="panel__title">An&aacute;lise do per&iacute;odo selecionado</span>
+    </div>
+    <div class="analise-body">
+      <section class="kpis kpis--analise" id="analiseKpiRow"></section>
+
+      <div class="sim-card">
+        <div class="sim-card__row">
+          <div>
+            <div class="sim-card__title">Simulador: e se o Tempo Online subir?</div>
+            <div class="sim-card__hint">Ajuste a meta de % Tempo Online do time e veja o impacto estimado na Ader&ecirc;ncia (mantendo as horas esperadas fixas).</div>
+          </div>
+          <div class="sim-card__control">
+            <input type="range" id="simRange" min="0" max="100" step="1">
+            <span class="sim-card__val" id="simValLabel">0%</span>
+          </div>
+        </div>
+        <div class="sim-card__result" id="simResult"></div>
+      </div>
+
+      <div class="analise-grid">
+        <div class="analise-col">
+          <h3>N&atilde;o compareceram <span class="count-badge" id="noShowCount">0</span></h3>
+          <p class="analise-col__hint">Agendados no per&iacute;odo, mas com tempo online zerado em todos os turnos.</p>
+          <div class="chip-list" id="noShowList"></div>
+        </div>
+        <div class="analise-col">
+          <h3>Ficaram menos da metade do turno <span class="count-badge" id="lowOnlineCount">0</span></h3>
+          <p class="analise-col__hint">Compareceram, mas o % Tempo Online m&eacute;dio ficou abaixo de 50%.</p>
+          <div class="table-scroll">
+            <table class="mini-table">
+              <thead><tr><th>Entregador</th><th>Turnos</th><th>Tempo Online</th></tr></thead>
+              <tbody id="lowOnlineBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="analise-col">
+          <h3>Recusaram quase tudo <span class="count-badge" id="rejectionCount">0</span></h3>
+          <p class="analise-col__hint">5+ corridas ofertadas com 90%+ de recusa.</p>
+          <div class="table-scroll">
+            <table class="mini-table">
+              <thead><tr><th>Entregador</th><th>Ofert.</th><th>Recus.</th><th>% Recusa</th></tr></thead>
+              <tbody id="rejectionBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -372,7 +457,7 @@
   // período filtrado — sem a data, dias diferentes se sobrescreviam no mesmo
   // grupo e a vaga esperada ficava subcontada quando o período tinha mais de
   // um dia.
-  function computeAderencia(rows) {
+  function computeAderenciaDetail(rows) {
     var groupDur = {};
     var groupVagas = {};
     var tempoRealizado = 0;
@@ -386,7 +471,14 @@
     Object.keys(groupDur).forEach(function (key) {
       tempoEsperado += groupVagas[key] * groupDur[key];
     });
-    return tempoEsperado ? Math.round((100 * tempoRealizado / tempoEsperado) * 100) / 100 : 0;
+    return {
+      pct: tempoEsperado ? Math.round((100 * tempoRealizado / tempoEsperado) * 100) / 100 : 0,
+      esperadoSec: tempoEsperado,
+      realizadoSec: tempoRealizado,
+    };
+  }
+  function computeAderencia(rows) {
+    return computeAderenciaDetail(rows).pct;
   }
 
   // Tempo online (KPI de topo) = tempo online realizado ÷ duração escalada,
@@ -473,6 +565,42 @@
       };
     });
     return out;
+  }
+
+  // Dive deep: quem agendou e nunca ficou online (não compareceu), quem
+  // compareceu mas ficou menos da metade do turno online, e quem recusou
+  // quase todas as corridas ofertadas.
+  function computeAnalysis(rows, d1ById) {
+    var absByPerson = {};
+    rows.forEach(function (r) {
+      var key = normName(r.pessoa_entregadora);
+      absByPerson[key] = (absByPerson[key] || 0) + toSeconds(r.tempo_disponivel_absoluto);
+    });
+    var noShow = [], lowOnline = [], rejectionOutliers = [];
+    Object.keys(d1ById).forEach(function (key) {
+      var p = d1ById[key];
+      var abs = absByPerson[key] || 0;
+      if (abs <= 0) {
+        noShow.push(p);
+      } else if (p.tempo_online_pct < 50) {
+        lowOnline.push(p);
+      }
+      if (p.corridas_ofertadas >= 5 && (p.rejeitadas / p.corridas_ofertadas) >= 0.9) {
+        rejectionOutliers.push(p);
+      }
+    });
+    noShow.sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
+    lowOnline.sort(function (a, b) { return a.tempo_online_pct - b.tempo_online_pct; });
+    rejectionOutliers.sort(function (a, b) { return (b.rejeitadas / b.corridas_ofertadas) - (a.rejeitadas / a.corridas_ofertadas); });
+    var totalDrivers = Object.keys(d1ById).length;
+    var showedUp = totalDrivers - noShow.length;
+    return {
+      totalDrivers: totalDrivers,
+      noShow: noShow,
+      lowOnline: lowOnline,
+      rejectionOutliers: rejectionOutliers,
+      showedUp: showedUp,
+    };
   }
 
   function aggregateD0(rows) {
@@ -605,6 +733,83 @@
     });
   }
 
+  var currentAderenciaDetail = { pct: 0, esperadoSec: 0, realizadoSec: 0 };
+  var currentTempoOnlinePct = 0;
+
+  function fmtHoras(sec) {
+    return (sec / 3600).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + 'h';
+  }
+
+  function renderSimulator() {
+    var range = document.getElementById('simRange');
+    var target = Number(range.value);
+    document.getElementById('simValLabel').textContent = target + '%';
+    var result = document.getElementById('simResult');
+    if (!currentTempoOnlinePct || !currentAderenciaDetail.esperadoSec) {
+      result.innerHTML = '<span class="empty-hint">Sem dados suficientes no período pra simular.</span>';
+      return;
+    }
+    var novaAderencia = currentAderenciaDetail.pct * (target / currentTempoOnlinePct);
+    novaAderencia = Math.max(0, Math.round(novaAderencia * 100) / 100);
+    result.innerHTML = 'Se o Tempo Online do time for pra <b>' + target + '%</b>, a Ader&ecirc;ncia estimada sobe de ' +
+      currentAderenciaDetail.pct.toFixed(2).replace('.', ',') + '% para <b>' + novaAderencia.toFixed(2).replace('.', ',') + '%</b>.';
+  }
+
+  function renderAnalise(analysis, aderenciaDetail, tempoOnlinePct) {
+    currentAderenciaDetail = aderenciaDetail;
+    currentTempoOnlinePct = tempoOnlinePct;
+
+    var esperadoSec = aderenciaDetail.esperadoSec;
+    var realizadoSec = aderenciaDetail.realizadoSec;
+    var gapSec = Math.max(0, esperadoSec - realizadoSec);
+    var noShowPct = analysis.totalDrivers ? Math.round((100 * analysis.noShow.length / analysis.totalDrivers) * 10) / 10 : 0;
+    var lowOnlinePct = analysis.showedUp ? Math.round((100 * analysis.lowOnline.length / analysis.showedUp) * 10) / 10 : 0;
+
+    var ANALISE_KPI_DEFS = [
+      { label: 'Entregadores agendados', val: analysis.totalDrivers.toLocaleString('pt-BR') },
+      { label: 'Não compareceram', val: analysis.noShow.length.toLocaleString('pt-BR') + ' (' + noShowPct.toFixed(1).replace('.', ',') + '%)' },
+      { label: '< 50% do turno online', val: analysis.lowOnline.length.toLocaleString('pt-BR') + ' (' + lowOnlinePct.toFixed(1).replace('.', ',') + '% de quem veio)' },
+      { label: 'Horas esperadas', val: fmtHoras(esperadoSec) },
+      { label: 'Gap de horas', val: fmtHoras(gapSec) },
+    ];
+    var kpiRow = document.getElementById('analiseKpiRow');
+    kpiRow.innerHTML = '';
+    ANALISE_KPI_DEFS.forEach(function (def) {
+      var div = document.createElement('div');
+      div.className = 'kpi';
+      div.innerHTML = '<div class="val">' + def.val + '</div><div class="lbl">' + def.label + '</div>';
+      kpiRow.appendChild(div);
+    });
+
+    document.getElementById('noShowCount').textContent = analysis.noShow.length;
+    document.getElementById('lowOnlineCount').textContent = analysis.lowOnline.length;
+    document.getElementById('rejectionCount').textContent = analysis.rejectionOutliers.length;
+
+    var noShowList = document.getElementById('noShowList');
+    noShowList.innerHTML = analysis.noShow.length
+      ? analysis.noShow.map(function (p) { return '<span class="chip">' + p.nome + '</span>'; }).join('')
+      : '<span class="empty-hint">Ninguém — todo mundo que agendou apareceu.</span>';
+
+    var lowOnlineBody = document.getElementById('lowOnlineBody');
+    lowOnlineBody.innerHTML = analysis.lowOnline.length
+      ? analysis.lowOnline.map(function (p) {
+          return '<tr><td>' + p.nome + '</td><td>' + p.turnos + '</td><td>' + p.tempo_online_pct.toFixed(1).replace('.', ',') + '%</td></tr>';
+        }).join('')
+      : '<tr><td colspan="3" class="empty-hint">Ninguém abaixo de 50%.</td></tr>';
+
+    var rejectionBody = document.getElementById('rejectionBody');
+    rejectionBody.innerHTML = analysis.rejectionOutliers.length
+      ? analysis.rejectionOutliers.map(function (p) {
+          var pctRec = Math.round((100 * p.rejeitadas / p.corridas_ofertadas) * 10) / 10;
+          return '<tr><td>' + p.nome + '</td><td>' + p.corridas_ofertadas + '</td><td>' + p.rejeitadas + '</td><td>' + pctRec.toFixed(1).replace('.', ',') + '%</td></tr>';
+        }).join('')
+      : '<tr><td colspan="4" class="empty-hint">Ninguém com recusa acima de 90%.</td></tr>';
+
+    var range = document.getElementById('simRange');
+    range.value = Math.round(tempoOnlinePct);
+    renderSimulator();
+  }
+
   function renderTable() {
     var q = document.getElementById('searchInput').value.trim().toLowerCase();
     var statusFilter = document.getElementById('statusFilter').value;
@@ -669,7 +874,8 @@
     var d0ById = aggregateD0(RAW_D0);
     merged = buildMerged(d1ById, d0ById);
     kpis = computeKpis(d1ById);
-    kpis.aderencia_pct = computeAderencia(d1Rows);
+    var aderenciaDetail = computeAderenciaDetail(d1Rows);
+    kpis.aderencia_pct = aderenciaDetail.pct;
     kpis.tempo_online_pct = computeTempoOnlineTotal(d1Rows);
     var kpisPrev = null;
     if (d1RowsPrev.length) {
@@ -677,6 +883,8 @@
       kpisPrev.aderencia_pct = computeAderencia(d1RowsPrev);
       kpisPrev.tempo_online_pct = computeTempoOnlineTotal(d1RowsPrev);
     }
+    var analysis = computeAnalysis(d1Rows, d1ById);
+    renderAnalise(analysis, aderenciaDetail, kpis.tempo_online_pct);
     renderKpis(kpisPrev);
     renderTable();
 
@@ -744,6 +952,17 @@
     document.getElementById('searchInput').addEventListener('input', renderTable);
     document.getElementById('statusFilter').addEventListener('change', renderTable);
     document.getElementById('turnoFilter').addEventListener('change', recompute);
+
+    document.querySelectorAll('.tab-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var view = btn.getAttribute('data-view');
+        document.getElementById('viewDesempenho').hidden = view !== 'desempenho';
+        document.getElementById('viewAnalise').hidden = view !== 'analise';
+      });
+    });
+    document.getElementById('simRange').addEventListener('input', renderSimulator);
 
     recompute();
   }
