@@ -117,6 +117,13 @@
 
   .empty-row td { text-align: center; color: var(--text-muted); padding: 28px; font-size: 13.5px; }
 
+  .date-range { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-muted); }
+  .date-range label { display: flex; align-items: center; gap: 5px; }
+  .date-range input[type="date"] { font-family: inherit; font-size: 12.5px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  .compare-note { padding: 0 16px 12px; font-size: 12px; color: var(--text-faint); }
+  .delta { display: block; font-size: 10px; color: var(--text-faint); font-weight: 600; margin-top: 1px; white-space: nowrap; }
+  .kpi .delta { font-size: 11px; margin-top: 4px; }
+
   details.note { margin-top: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
   details.note summary { cursor: pointer; padding: 13px 16px; font-size: 13.5px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); }
   details.note summary::-webkit-details-marker { display: none; }
@@ -175,6 +182,10 @@
   <section class="panel">
     <div class="panel__bar">
       <span class="panel__title">Desempenho por entregador</span>
+      <div class="date-range">
+        <label>De <input type="date" id="dateFromInput"></label>
+        <label>At&eacute; <input type="date" id="dateToInput"></label>
+      </div>
       <select id="turnoFilter"><option value="all">Todos os turnos</option></select>
       <div class="search">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -187,6 +198,7 @@
         <option value="none">Sem dado hoje</option>
       </select>
     </div>
+    <div class="compare-note" id="compareNote"></div>
     <div class="table-scroll">
       <table id="mainTable">
         <thead>
@@ -200,8 +212,7 @@
             <th data-key="canceladas" title="Corridas canceladas">Cancel.</th>
             <th data-key="rotas" title="Corridas completadas">Rotas</th>
             <th data-key="taxa_aceite_pct">% Aceite</th>
-            <th data-key="tempo_online_pct">% Online</th>
-            <th data-key="aderencia_pct" title="Tempo online ÷ (vagas esperadas × duração dos turnos dessa pessoa)">Ader&ecirc;ncia</th>
+            <th data-key="aderencia_pct" title="Tempo online ÷ duração dos turnos dessa pessoa (equivalente ao % Online)">Ader&ecirc;ncia</th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -315,6 +326,34 @@
     var m = String(t).match(/(\d{1,2}):(\d{2}):(\d{2})/);
     if (!m) return 0;
     return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+  }
+
+  // ---- datas (dd/MM/yyyy, comparação semana a semana) ----
+  function parseDateBR(str) {
+    var m = String(str || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!m) return null;
+    return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  }
+  function pad2(n) { return n < 10 ? '0' + n : String(n); }
+  function formatDateBR(d) {
+    return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear();
+  }
+  function toISOInput(d) {
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+  function parseISOInput(str) {
+    var parts = String(str || '').split('-');
+    if (parts.length !== 3) return null;
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  }
+  function shiftDate(d, days) {
+    var nd = new Date(d.getTime());
+    nd.setDate(nd.getDate() + days);
+    return nd;
+  }
+  function inDateRange(r, from, to) {
+    var d = parseDateBR(r.data_do_periodo);
+    return !!d && d.getTime() >= from.getTime() && d.getTime() <= to.getTime();
   }
 
   function subpracaKey(r) {
@@ -479,7 +518,7 @@
     Object.keys(allKeys).forEach(function (key) {
       var d1 = d1ById[key] || null;
       var d0 = d0ById[key] || null;
-      merged.push({ nome: (d1 && d1.nome) || (d0 && d0.nome) || key, d1: d1, d0: d0 });
+      merged.push({ nome: (d1 && d1.nome) || (d0 && d0.nome) || key, d1: d1, d0: d0, key: key });
     });
     return merged;
   }
@@ -502,22 +541,40 @@
 
   var merged = [];
   var kpis = {};
+  var currentPrevById = {};
 
-  function renderKpis() {
+  // diff em pontos percentuais (pra métricas que já são %)
+  function deltaPP(curr, prev) {
+    if (prev === null || prev === undefined) return '';
+    var diff = curr - prev;
+    var arrow = diff > 0.005 ? '▲' : diff < -0.005 ? '▼' : '•';
+    return '<span class="delta">' + arrow + ' ' + (diff >= 0 ? '+' : '') + diff.toFixed(1).replace('.', ',') + 'pp vs sem. ant.</span>';
+  }
+  // diff percentual relativo (pra contagens: pedidos, corridas, entregadores...)
+  function deltaPct(curr, prev) {
+    if (prev === null || prev === undefined) return '';
+    if (!prev) return curr ? '<span class="delta">▲ novo vs sem. ant.</span>' : '';
+    var diff = ((curr - prev) / prev) * 100;
+    var arrow = diff > 0.5 ? '▲' : diff < -0.5 ? '▼' : '•';
+    return '<span class="delta">' + arrow + ' ' + (diff >= 0 ? '+' : '') + diff.toFixed(0).replace('.', ',') + '% vs sem. ant.</span>';
+  }
+
+  function renderKpis(kpisPrev) {
     var KPI_DEFS = [
-      { key: 'pedidos', label: 'Pedidos', fmt: function (v) { return v.toLocaleString('pt-BR'); } },
-      { key: 'taxa_conclusao_pct', label: 'Taxa Conclusão', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; } },
-      { key: 'taxa_aceite_pct', label: '% Taxa de Aceite', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; } },
-      { key: 'tempo_online_pct', label: 'Tempo online', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; } },
-      { key: 'aderencia_pct', label: 'Aderência', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; } },
-      { key: 'entregadores', label: 'Entregadores', fmt: function (v) { return v.toLocaleString('pt-BR'); } },
+      { key: 'pedidos', label: 'Pedidos', fmt: function (v) { return v.toLocaleString('pt-BR'); }, delta: deltaPct },
+      { key: 'taxa_conclusao_pct', label: 'Taxa Conclusão', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; }, delta: deltaPP },
+      { key: 'taxa_aceite_pct', label: '% Taxa de Aceite', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; }, delta: deltaPP },
+      { key: 'tempo_online_pct', label: 'Tempo online', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; }, delta: deltaPP },
+      { key: 'aderencia_pct', label: 'Aderência', fmt: function (v) { return v.toFixed(2).replace('.', ',') + '%'; }, delta: deltaPP },
+      { key: 'entregadores', label: 'Entregadores', fmt: function (v) { return v.toLocaleString('pt-BR'); }, delta: deltaPct },
     ];
     var kpiRow = document.getElementById('kpiRow');
     kpiRow.innerHTML = '';
     KPI_DEFS.forEach(function (def) {
       var div = document.createElement('div');
       div.className = 'kpi';
-      div.innerHTML = '<div class="val">' + def.fmt(kpis[def.key]) + '</div><div class="lbl">' + def.label + '</div>';
+      var deltaHtml = kpisPrev ? def.delta(kpis[def.key], kpisPrev[def.key]) : '';
+      div.innerHTML = '<div class="val">' + def.fmt(kpis[def.key]) + '</div><div class="lbl">' + def.label + '</div>' + deltaHtml;
       kpiRow.appendChild(div);
     });
   }
@@ -538,11 +595,12 @@
     var tbody = document.getElementById('tableBody');
     tbody.innerHTML = '';
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="11">Nenhum entregador encontrado.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Nenhum entregador encontrado.</td></tr>';
       return;
     }
     rows.forEach(function (p) {
       var d1 = p.d1;
+      var prev = p.key ? currentPrevById[p.key] : null;
       var subs = (d1.subpracas && d1.subpracas.length) ? d1.subpracas.join(', ') : (p.d0 ? p.d0.subpraca : '');
       var cpf = p.d0 && p.d0.cpf ? p.d0.cpf : '';
       var tr = document.createElement('tr');
@@ -550,28 +608,56 @@
         '<td class="name">' + p.nome + '<span class="sub">' + [subs, cpf].filter(Boolean).join(' · ') + '</span></td>' +
         '<td>' + pillHtml(p) + '</td>' +
         '<td>' + d1.turnos + '</td>' +
-        '<td>' + d1.pedidos.toLocaleString('pt-BR') + '</td>' +
-        '<td>' + d1.corridas_ofertadas.toLocaleString('pt-BR') + '</td>' +
-        '<td>' + d1.rejeitadas.toLocaleString('pt-BR') + '</td>' +
-        '<td>' + d1.canceladas.toLocaleString('pt-BR') + '</td>' +
-        '<td>' + d1.rotas.toLocaleString('pt-BR') + '</td>' +
-        '<td>' + barCell(d1.taxa_aceite_pct) + '</td>' +
-        '<td>' + barCell(d1.tempo_online_pct) + '</td>' +
-        '<td>' + barCell(d1.aderencia_pct) + '</td>';
+        '<td>' + d1.pedidos.toLocaleString('pt-BR') + deltaPct(d1.pedidos, prev && prev.pedidos) + '</td>' +
+        '<td>' + d1.corridas_ofertadas.toLocaleString('pt-BR') + deltaPct(d1.corridas_ofertadas, prev && prev.corridas_ofertadas) + '</td>' +
+        '<td>' + d1.rejeitadas.toLocaleString('pt-BR') + deltaPct(d1.rejeitadas, prev && prev.rejeitadas) + '</td>' +
+        '<td>' + d1.canceladas.toLocaleString('pt-BR') + deltaPct(d1.canceladas, prev && prev.canceladas) + '</td>' +
+        '<td>' + d1.rotas.toLocaleString('pt-BR') + deltaPct(d1.rotas, prev && prev.rotas) + '</td>' +
+        '<td>' + barCell(d1.taxa_aceite_pct) + deltaPP(d1.taxa_aceite_pct, prev && prev.taxa_aceite_pct) + '</td>' +
+        '<td>' + barCell(d1.aderencia_pct) + deltaPP(d1.aderencia_pct, prev && prev.aderencia_pct) + '</td>';
       tbody.appendChild(tr);
     });
   }
 
+  var minDataDate = null, maxDataDate = null;
+
   function recompute() {
     var turno = document.getElementById('turnoFilter').value;
-    var d1Rows = turno === 'all' ? RAW_D1 : RAW_D1.filter(function (r) { return r.periodo === turno; });
+    var dateFromInput = document.getElementById('dateFromInput');
+    var dateToInput = document.getElementById('dateToInput');
+    var fromDate = parseISOInput(dateFromInput.value) || minDataDate || new Date();
+    var toDate = parseISOInput(dateToInput.value) || maxDataDate || new Date();
+    if (fromDate.getTime() > toDate.getTime()) { var tmp = fromDate; fromDate = toDate; toDate = tmp; }
+    var prevFrom = shiftDate(fromDate, -7);
+    var prevTo = shiftDate(toDate, -7);
+
+    var baseRows = RAW_D1.filter(function (r) { return inDateRange(r, fromDate, toDate); });
+    var prevRows = RAW_D1.filter(function (r) { return inDateRange(r, prevFrom, prevTo); });
+    var d1Rows = turno === 'all' ? baseRows : baseRows.filter(function (r) { return r.periodo === turno; });
+    var d1RowsPrev = turno === 'all' ? prevRows : prevRows.filter(function (r) { return r.periodo === turno; });
+
     var d1ById = aggregateD1(d1Rows);
+    var d1ByIdPrev = aggregateD1(d1RowsPrev);
+    currentPrevById = d1ByIdPrev;
     var d0ById = aggregateD0(RAW_D0);
     merged = buildMerged(d1ById, d0ById);
     kpis = computeKpis(d1ById);
     kpis.aderencia_pct = computeAderencia(d1Rows);
-    renderKpis();
+    var kpisPrev = null;
+    if (d1RowsPrev.length) {
+      kpisPrev = computeKpis(d1ByIdPrev);
+      kpisPrev.aderencia_pct = computeAderencia(d1RowsPrev);
+    }
+    renderKpis(kpisPrev);
     renderTable();
+
+    var dateLabel = fromDate.getTime() === toDate.getTime() ? formatDateBR(fromDate) : (formatDateBR(fromDate) + ' – ' + formatDateBR(toDate));
+    document.getElementById('d1DateLabel').textContent = 'Desempenho de ' + dateLabel;
+    document.getElementById('pageFooter').textContent = 'Cruzamento por nome entre as abas D0 e D-1 da planilha · dados de ' + dateLabel;
+    var compareNote = document.getElementById('compareNote');
+    compareNote.textContent = d1RowsPrev.length
+      ? 'Comparando com a semana anterior: ' + formatDateBR(prevFrom) + ' – ' + formatDateBR(prevTo)
+      : 'Sem dados da semana anterior (' + formatDateBR(prevFrom) + ' – ' + formatDateBR(prevTo) + ') para comparar.';
 
     var onlyD0 = merged.filter(function (p) { return p.d0 && !p.d1; });
     var noteEl = document.getElementById('unmatchedNote');
@@ -593,9 +679,20 @@
       turnoSelect.appendChild(opt);
     });
 
-    var dateLabel = d1Rows.length ? d1Rows[0].data_do_periodo : '';
-    document.getElementById('d1DateLabel').textContent = dateLabel ? ('Desempenho de ' + dateLabel) : 'Desempenho D-1';
-    document.getElementById('pageFooter').textContent = 'Cruzamento por nome entre as abas D0 e D-1 da planilha' + (dateLabel ? ' · dados de ' + dateLabel : '');
+    var allDates = d1Rows.map(function (r) { return parseDateBR(r.data_do_periodo); }).filter(Boolean);
+    maxDataDate = allDates.length ? new Date(Math.max.apply(null, allDates.map(function (d) { return d.getTime(); }))) : new Date();
+    minDataDate = allDates.length ? new Date(Math.min.apply(null, allDates.map(function (d) { return d.getTime(); }))) : maxDataDate;
+    var defaultFrom = shiftDate(maxDataDate, -6);
+    if (defaultFrom.getTime() < minDataDate.getTime()) defaultFrom = minDataDate;
+
+    var dateFromInput = document.getElementById('dateFromInput');
+    var dateToInput = document.getElementById('dateToInput');
+    dateFromInput.min = dateToInput.min = toISOInput(minDataDate);
+    dateFromInput.max = dateToInput.max = toISOInput(maxDataDate);
+    dateFromInput.value = toISOInput(defaultFrom);
+    dateToInput.value = toISOInput(maxDataDate);
+    dateFromInput.addEventListener('change', recompute);
+    dateToInput.addEventListener('change', recompute);
 
     document.querySelectorAll('#mainTable thead th').forEach(function (th) {
       th.addEventListener('click', function () {
