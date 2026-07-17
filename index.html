@@ -122,6 +122,8 @@
   .date-range input[type="date"] { font-family: inherit; font-size: 12.5px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
   .compare-note { padding: 0 16px 12px; font-size: 12px; color: var(--text-faint); }
   .delta { display: block; font-size: 10px; color: var(--text-faint); font-weight: 600; margin-top: 1px; white-space: nowrap; }
+  .delta--up { color: var(--good); }
+  .delta--down { color: var(--critical); }
   .kpi .delta { font-size: 11px; margin-top: 4px; }
 
   details.note { margin-top: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
@@ -212,7 +214,7 @@
             <th data-key="canceladas" title="Corridas canceladas">Cancel.</th>
             <th data-key="rotas" title="Corridas completadas">Rotas</th>
             <th data-key="taxa_aceite_pct">% Aceite</th>
-            <th data-key="aderencia_pct" title="Tempo online ÷ duração dos turnos dessa pessoa (equivalente ao % Online)">Ader&ecirc;ncia</th>
+            <th data-key="tempo_online_pct" title="Média do % de tempo online calculado pela plataforma em cada turno dessa pessoa">Tempo Online</th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -223,8 +225,9 @@
   <details class="note">
     <summary><span>Como os n&uacute;meros s&atilde;o calculados &middot; limita&ccedil;&otilde;es do cruzamento</span></summary>
     <div class="note__body">
-      <p><b>D-1 (desempenho):</b> soma dos turnos do per&iacute;odo selecionado. <code>% Aceite</code> = corridas aceitas &divide; corridas ofertadas. <code>% Online</code> = tempo dispon&iacute;vel absoluto &divide; dura&ccedil;&atilde;o escalada. <code>Rotas</code> = corridas completadas.</p>
-      <p><b>Ader&ecirc;ncia:</b> tempo online realizado &divide; (vagas esperadas &times; dura&ccedil;&atilde;o do turno), somado por subpra&ccedil;a+turno &uacute;nico. As vagas esperadas vêm direto da coluna <code>numero_minimo_de_entregadores_regulares_na_escala</code> de cada linha do D-1 (o mesmo "Regular Y" do Gestor de Escalas), então já variam por turno.</p>
+      <p><b>D-1 (desempenho):</b> soma dos turnos do per&iacute;odo selecionado. <code>% Aceite</code> = corridas aceitas &divide; corridas ofertadas. <code>Rotas</code> = corridas completadas.</p>
+      <p><b>Tempo Online (coluna por entregador):</b> m&eacute;dia do <code>tempo_disponivel_escalado</code> de cada turno dessa pessoa &mdash; esse campo j&aacute; vem calculado pela plataforma. <b>Tempo online (KPI de topo):</b> tempo dispon&iacute;vel absoluto &divide; dura&ccedil;&atilde;o escalada, somado globalmente (n&atilde;o &eacute; m&eacute;dia das porcentagens por pessoa).</p>
+      <p><b>Ader&ecirc;ncia (KPI de topo):</b> tempo online realizado &divide; (vagas esperadas &times; dura&ccedil;&atilde;o do turno), somado por subpra&ccedil;a+turno+dia &uacute;nico. As vagas esperadas vêm direto da coluna <code>numero_minimo_de_entregadores_regulares_na_escala</code> de cada linha do D-1 (o mesmo "Regular Y" do Gestor de Escalas).</p>
       <p><b>D0 (status ao vivo):</b> reflete o &uacute;ltimo snapshot salvo na aba D0 &mdash; s&oacute; entregadores que estavam vis&iacute;veis nas abas de status no momento da extra&ccedil;&atilde;o aparecem com Online/Offline; os demais mostram "Sem dado hoje".</p>
       <p id="unmatchedNote"></p>
     </div>
@@ -362,16 +365,19 @@
   }
 
   // Aderência = tempo online realizado ÷ (vagas esperadas × duração do turno),
-  // somado por grupo único de subpraça+turno (não por linha/pessoa). As vagas
+  // somado por grupo único de subpraça+turno+dia (não por linha/pessoa). As vagas
   // esperadas vêm direto da coluna numero_minimo_de_entregadores_regulares_na_escala
-  // do D-1 (é o mesmo "Y" do Regular X/Y no Gestor de Escalas), então já variam
-  // certinho por turno em vez de usar uma tabela fixa por subpraça.
+  // do D-1 (é o mesmo "Y" do Regular X/Y no Gestor de Escalas). A DATA entra na
+  // chave do grupo porque o mesmo subpraça+turno se repete em cada dia do
+  // período filtrado — sem a data, dias diferentes se sobrescreviam no mesmo
+  // grupo e a vaga esperada ficava subcontada quando o período tinha mais de
+  // um dia.
   function computeAderencia(rows) {
     var groupDur = {};
     var groupVagas = {};
     var tempoRealizado = 0;
     rows.forEach(function (r) {
-      var key = subpracaKey(r) + '|' + r.periodo;
+      var key = subpracaKey(r) + '|' + r.periodo + '|' + r.data_do_periodo;
       groupDur[key] = toSeconds(r.duracao_do_periodo);
       groupVagas[key] = Number(r.numero_minimo_de_entregadores_regulares_na_escala) || 0;
       tempoRealizado += toSeconds(r.tempo_disponivel_absoluto);
@@ -381,6 +387,19 @@
       tempoEsperado += groupVagas[key] * groupDur[key];
     });
     return tempoEsperado ? Math.round((100 * tempoRealizado / tempoEsperado) * 100) / 100 : 0;
+  }
+
+  // Tempo online (KPI de topo) = tempo online realizado ÷ duração escalada,
+  // somado globalmente por todas as linhas do período (não é média das
+  // porcentagens por pessoa - isso pesava igual quem trabalhou 1 turno e quem
+  // trabalhou 20).
+  function computeTempoOnlineTotal(rows) {
+    var sumAbs = 0, sumDur = 0;
+    rows.forEach(function (r) {
+      sumAbs += toSeconds(r.tempo_disponivel_absoluto);
+      sumDur += toSeconds(r.duracao_do_periodo);
+    });
+    return sumDur ? Math.round((100 * sumAbs / sumDur) * 100) / 100 : 0;
   }
 
   function normName(name) {
@@ -420,7 +439,8 @@
     Object.keys(byPerson).forEach(function (key) {
       var rs = byPerson[key];
       var turnos = rs.length;
-      var pedidos = 0, ofertadas = 0, aceitas = 0, rejeitadas = 0, completadas = 0, canceladas = 0, dur = 0, abs = 0;
+      var pedidos = 0, ofertadas = 0, aceitas = 0, rejeitadas = 0, completadas = 0, canceladas = 0;
+      var escSum = 0, escCount = 0;
       var subpracas = {};
       rs.forEach(function (r) {
         pedidos += Number(r.numero_de_pedidos_aceitos_e_concluidos) || 0;
@@ -429,15 +449,15 @@
         rejeitadas += Number(r.numero_de_corridas_rejeitadas) || 0;
         completadas += Number(r.numero_de_corridas_completadas) || 0;
         canceladas += Number(r.numero_de_corridas_canceladas_pela_pessoa_entregadora) || 0;
-        dur += toSeconds(r.duracao_do_periodo);
-        abs += toSeconds(r.tempo_disponivel_absoluto);
+        // tempo_disponivel_escalado já vem como % pronto da plataforma (não é
+        // simplesmente tempo online ÷ duração do turno - em boa parte das
+        // linhas esses valores divergem, então a plataforma usa alguma regra
+        // interna que não temos em outras colunas). Usar esse campo direto é
+        // o que bate com o valor "% Tempo Online" oficial por pessoa.
+        var esc = Number(r.tempo_disponivel_escalado);
+        if (!isNaN(esc)) { escSum += esc; escCount++; }
         if (r.sub_praca) subpracas[r.sub_praca] = true;
       });
-      // aderência individual: tempo realizado ÷ tempo esperado, onde o
-      // esperado é só a soma da duração dos turnos dessa pessoa (sem vagas
-      // da região - isso é só pro KPI de topo). Ex.: 5h online em 5 turnos
-      // de 3h (15h esperadas) = 33%.
-      var tempoEsperadoPessoa = dur;
       out[key] = {
         nome: rs[0].pessoa_entregadora,
         turnos: turnos,
@@ -448,8 +468,7 @@
         rotas: completadas,
         canceladas: canceladas,
         taxa_aceite_pct: ofertadas ? Math.round((100 * aceitas / ofertadas) * 100) / 100 : 0,
-        tempo_online_pct: dur ? Math.round((100 * abs / dur) * 100) / 100 : 0,
-        aderencia_pct: tempoEsperadoPessoa ? Math.round((100 * abs / tempoEsperadoPessoa) * 100) / 100 : 0,
+        tempo_online_pct: escCount ? Math.round((escSum / escCount) * 100) / 100 : 0,
         subpracas: Object.keys(subpracas).sort(),
       };
     });
@@ -525,16 +544,17 @@
 
   function computeKpis(d1ById) {
     var vals = Object.keys(d1ById).map(function (k) { return d1ById[k]; });
-    var pedidos = 0, ofertadas = 0, aceitas = 0, rotas = 0, tempoSum = 0;
+    var pedidos = 0, ofertadas = 0, aceitas = 0, rotas = 0;
     vals.forEach(function (v) {
       pedidos += v.pedidos; ofertadas += v.corridas_ofertadas; aceitas += v.corridas_aceitas;
-      rotas += v.rotas; tempoSum += v.tempo_online_pct;
+      rotas += v.rotas;
     });
     return {
       pedidos: pedidos,
       taxa_conclusao_pct: aceitas ? Math.round((100 * rotas / aceitas) * 100) / 100 : 0,
       taxa_aceite_pct: ofertadas ? Math.round((100 * aceitas / ofertadas) * 100) / 100 : 0,
-      tempo_online_pct: vals.length ? Math.round((tempoSum / vals.length) * 100) / 100 : 0,
+      // tempo_online_pct e aderencia_pct são preenchidos fora daqui (computeTempoOnlineTotal
+      // e computeAderencia), porque dependem das linhas brutas, não do agregado por pessoa.
       entregadores: vals.length,
     };
   }
@@ -544,19 +564,25 @@
   var currentPrevById = {};
 
   // diff em pontos percentuais (pra métricas que já são %)
-  function deltaPP(curr, prev) {
+  function deltaPP(curr, prev, opts) {
+    opts = opts || {};
     if (prev === null || prev === undefined) return '';
     var diff = curr - prev;
+    var cls = diff > 0.005 ? 'delta--up' : diff < -0.005 ? 'delta--down' : '';
     var arrow = diff > 0.005 ? '▲' : diff < -0.005 ? '▼' : '•';
-    return '<span class="delta">' + arrow + ' ' + (diff >= 0 ? '+' : '') + diff.toFixed(1).replace('.', ',') + 'pp vs sem. ant.</span>';
+    var suffix = opts.compact ? '' : ' vs sem. ant.';
+    return '<span class="delta ' + cls + '">' + arrow + ' ' + (diff >= 0 ? '+' : '') + diff.toFixed(1).replace('.', ',') + 'pp' + suffix + '</span>';
   }
   // diff percentual relativo (pra contagens: pedidos, corridas, entregadores...)
-  function deltaPct(curr, prev) {
+  function deltaPct(curr, prev, opts) {
+    opts = opts || {};
     if (prev === null || prev === undefined) return '';
-    if (!prev) return curr ? '<span class="delta">▲ novo vs sem. ant.</span>' : '';
+    var suffix = opts.compact ? '' : ' vs sem. ant.';
+    if (!prev) return curr ? '<span class="delta delta--up">▲ novo' + suffix + '</span>' : '';
     var diff = ((curr - prev) / prev) * 100;
+    var cls = diff > 0.5 ? 'delta--up' : diff < -0.5 ? 'delta--down' : '';
     var arrow = diff > 0.5 ? '▲' : diff < -0.5 ? '▼' : '•';
-    return '<span class="delta">' + arrow + ' ' + (diff >= 0 ? '+' : '') + diff.toFixed(0).replace('.', ',') + '% vs sem. ant.</span>';
+    return '<span class="delta ' + cls + '">' + arrow + ' ' + (diff >= 0 ? '+' : '') + diff.toFixed(0).replace('.', ',') + '%' + suffix + '</span>';
   }
 
   function renderKpis(kpisPrev) {
@@ -603,18 +629,19 @@
       var prev = p.key ? currentPrevById[p.key] : null;
       var subs = (d1.subpracas && d1.subpracas.length) ? d1.subpracas.join(', ') : (p.d0 ? p.d0.subpraca : '');
       var cpf = p.d0 && p.d0.cpf ? p.d0.cpf : '';
+      var c = { compact: true };
       var tr = document.createElement('tr');
       tr.innerHTML =
         '<td class="name">' + p.nome + '<span class="sub">' + [subs, cpf].filter(Boolean).join(' · ') + '</span></td>' +
         '<td>' + pillHtml(p) + '</td>' +
         '<td>' + d1.turnos + '</td>' +
-        '<td>' + d1.pedidos.toLocaleString('pt-BR') + deltaPct(d1.pedidos, prev && prev.pedidos) + '</td>' +
-        '<td>' + d1.corridas_ofertadas.toLocaleString('pt-BR') + deltaPct(d1.corridas_ofertadas, prev && prev.corridas_ofertadas) + '</td>' +
-        '<td>' + d1.rejeitadas.toLocaleString('pt-BR') + deltaPct(d1.rejeitadas, prev && prev.rejeitadas) + '</td>' +
-        '<td>' + d1.canceladas.toLocaleString('pt-BR') + deltaPct(d1.canceladas, prev && prev.canceladas) + '</td>' +
-        '<td>' + d1.rotas.toLocaleString('pt-BR') + deltaPct(d1.rotas, prev && prev.rotas) + '</td>' +
-        '<td>' + barCell(d1.taxa_aceite_pct) + deltaPP(d1.taxa_aceite_pct, prev && prev.taxa_aceite_pct) + '</td>' +
-        '<td>' + barCell(d1.aderencia_pct) + deltaPP(d1.aderencia_pct, prev && prev.aderencia_pct) + '</td>';
+        '<td>' + d1.pedidos.toLocaleString('pt-BR') + deltaPct(d1.pedidos, prev && prev.pedidos, c) + '</td>' +
+        '<td>' + d1.corridas_ofertadas.toLocaleString('pt-BR') + deltaPct(d1.corridas_ofertadas, prev && prev.corridas_ofertadas, c) + '</td>' +
+        '<td>' + d1.rejeitadas.toLocaleString('pt-BR') + deltaPct(d1.rejeitadas, prev && prev.rejeitadas, c) + '</td>' +
+        '<td>' + d1.canceladas.toLocaleString('pt-BR') + deltaPct(d1.canceladas, prev && prev.canceladas, c) + '</td>' +
+        '<td>' + d1.rotas.toLocaleString('pt-BR') + deltaPct(d1.rotas, prev && prev.rotas, c) + '</td>' +
+        '<td>' + barCell(d1.taxa_aceite_pct) + deltaPP(d1.taxa_aceite_pct, prev && prev.taxa_aceite_pct, c) + '</td>' +
+        '<td>' + barCell(d1.tempo_online_pct) + deltaPP(d1.tempo_online_pct, prev && prev.tempo_online_pct, c) + '</td>';
       tbody.appendChild(tr);
     });
   }
@@ -643,10 +670,12 @@
     merged = buildMerged(d1ById, d0ById);
     kpis = computeKpis(d1ById);
     kpis.aderencia_pct = computeAderencia(d1Rows);
+    kpis.tempo_online_pct = computeTempoOnlineTotal(d1Rows);
     var kpisPrev = null;
     if (d1RowsPrev.length) {
       kpisPrev = computeKpis(d1ByIdPrev);
       kpisPrev.aderencia_pct = computeAderencia(d1RowsPrev);
+      kpisPrev.tempo_online_pct = computeTempoOnlineTotal(d1RowsPrev);
     }
     renderKpis(kpisPrev);
     renderTable();
