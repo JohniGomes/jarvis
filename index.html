@@ -502,14 +502,23 @@
   // Tempo online (KPI de topo) = tempo online realizado ÷ duração escalada,
   // somado globalmente por todas as linhas do período (não é média das
   // porcentagens por pessoa - isso pesava igual quem trabalhou 1 turno e quem
-  // trabalhou 20).
-  function computeTempoOnlineTotal(rows) {
+  // trabalhou 20). sumDur aqui é a duração escalada de quem EFETIVAMENTE teve
+  // turno registrado — diferente do esperadoSec da Aderência, que é vagas
+  // necessárias × duração (inclui vaga que ninguém pegou).
+  function computeTempoOnlineDetail(rows) {
     var sumAbs = 0, sumDur = 0;
     rows.forEach(function (r) {
       sumAbs += toSeconds(r.tempo_disponivel_absoluto);
       sumDur += toSeconds(r.duracao_do_periodo);
     });
-    return sumDur ? Math.round((100 * sumAbs / sumDur) * 100) / 100 : 0;
+    return {
+      pct: sumDur ? Math.round((100 * sumAbs / sumDur) * 100) / 100 : 0,
+      sumAbs: sumAbs,
+      sumDur: sumDur,
+    };
+  }
+  function computeTempoOnlineTotal(rows) {
+    return computeTempoOnlineDetail(rows).pct;
   }
 
   function normName(name) {
@@ -752,7 +761,7 @@
   }
 
   var currentAderenciaDetail = { pct: 0, esperadoSec: 0, realizadoSec: 0 };
-  var currentTempoOnlinePct = 0;
+  var currentTempoOnlineDetail = { pct: 0, sumAbs: 0, sumDur: 0 };
   var currentAnalysis = null;
   var currentPeriodLabel = '';
 
@@ -760,24 +769,35 @@
     return (sec / 3600).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + 'h';
   }
 
+  // Ao simular um novo % de Tempo Online, as horas escaladas de quem já tem
+  // turno (sumDur) ficam fixas — só a fatia delas que vira "realizado" muda.
+  // Por isso dá pra achar as horas realizadas em qualquer alvo (inclusive
+  // 100%, que é justamente sumDur inteiro: o time cobrindo toda a própria
+  // escala) sem precisar assumir que o esperado (vagas) também muda.
   function renderSimulator() {
     var range = document.getElementById('simRange');
     var target = Number(range.value);
     document.getElementById('simValLabel').textContent = target + '%';
     var result = document.getElementById('simResult');
-    if (!currentTempoOnlinePct || !currentAderenciaDetail.esperadoSec) {
+    if (!currentAderenciaDetail.esperadoSec) {
       result.innerHTML = '<span class="empty-hint">Sem dados suficientes no período pra simular.</span>';
       return;
     }
-    var novaAderencia = currentAderenciaDetail.pct * (target / currentTempoOnlinePct);
-    novaAderencia = Math.max(0, Math.round(novaAderencia * 100) / 100);
+    var esperadoHoras = currentAderenciaDetail.esperadoSec / 3600;
+    var realizadoHorasNovo = currentTempoOnlineDetail.sumDur * (target / 100) / 3600;
+    var novaAderencia = esperadoHoras ? Math.max(0, Math.round((100 * realizadoHorasNovo / esperadoHoras) * 100) / 100) : 0;
+    var gapNovo = Math.max(0, esperadoHoras - realizadoHorasNovo);
+    var maxPossivelHoras = currentTempoOnlineDetail.sumDur / 3600;
+
     result.innerHTML = 'Se o Tempo Online do time for pra <b>' + target + '%</b>, a Ader&ecirc;ncia estimada sobe de ' +
-      currentAderenciaDetail.pct.toFixed(2).replace('.', ',') + '% para <b>' + novaAderencia.toFixed(2).replace('.', ',') + '%</b>.';
+      currentAderenciaDetail.pct.toFixed(2).replace('.', ',') + '% para <b>' + novaAderencia.toFixed(2).replace('.', ',') + '%</b> ' +
+      '&mdash; equivalente a <b>' + fmtHoras(realizadoHorasNovo * 3600) + '</b> realizadas (gap cairia pra ' + fmtHoras(gapNovo * 3600) + ').' +
+      '<br><span class="empty-hint">M&aacute;ximo poss&iacute;vel com a escala atual (100% do tempo j&aacute; escalado): ' + fmtHoras(maxPossivelHoras * 3600) + '.</span>';
   }
 
-  function renderAnalise(analysis, aderenciaDetail, tempoOnlinePct) {
+  function renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail) {
     currentAderenciaDetail = aderenciaDetail;
-    currentTempoOnlinePct = tempoOnlinePct;
+    currentTempoOnlineDetail = tempoOnlineDetail;
     currentAnalysis = analysis;
     document.getElementById('aiSummaryResult').innerHTML = '';
     document.getElementById('aiSummaryBtn').disabled = false;
@@ -829,7 +849,7 @@
       : '<tr><td colspan="4" class="empty-hint">Ninguém com recusa acima de 90%.</td></tr>';
 
     var range = document.getElementById('simRange');
-    range.value = Math.round(tempoOnlinePct);
+    range.value = Math.round(tempoOnlineDetail.pct);
     renderSimulator();
   }
 
@@ -838,7 +858,7 @@
     return {
       periodo: currentPeriodLabel,
       aderenciaPct: currentAderenciaDetail.pct,
-      tempoOnlinePct: currentTempoOnlinePct,
+      tempoOnlinePct: currentTempoOnlineDetail.pct,
       horasEsperadas: Math.round(currentAderenciaDetail.esperadoSec / 3600),
       totalDrivers: a.totalDrivers,
       noShowCount: a.noShow.length,
@@ -945,7 +965,8 @@
     kpis = computeKpis(d1ById);
     var aderenciaDetail = computeAderenciaDetail(d1Rows);
     kpis.aderencia_pct = aderenciaDetail.pct;
-    kpis.tempo_online_pct = computeTempoOnlineTotal(d1Rows);
+    var tempoOnlineDetail = computeTempoOnlineDetail(d1Rows);
+    kpis.tempo_online_pct = tempoOnlineDetail.pct;
     var kpisPrev = null;
     if (d1RowsPrev.length) {
       kpisPrev = computeKpis(d1ByIdPrev);
@@ -953,7 +974,7 @@
       kpisPrev.tempo_online_pct = computeTempoOnlineTotal(d1RowsPrev);
     }
     var analysis = computeAnalysis(d1Rows, d1ById);
-    renderAnalise(analysis, aderenciaDetail, kpis.tempo_online_pct);
+    renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail);
     renderKpis(kpisPrev);
     renderTable();
 
