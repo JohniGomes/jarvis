@@ -858,7 +858,13 @@
     if (!url || !key) return;
     btn.disabled = true;
     out.innerHTML = '<span class="empty-hint">Gerando resumo…</span>';
-    fetch(url, { method: 'POST', body: JSON.stringify({ key: key, action: 'analyze', data: buildAiPayload() }) })
+    // GET, não POST: o Content Service do Apps Script não devolve cabeçalhos
+    // CORS em respostas de POST, então o navegador bloqueia a leitura mesmo
+    // com a chamada indo certinho no servidor. GET com os dados no
+    // querystring é o mesmo caminho que já funciona pras abas D0/D-1.
+    var sep = url.indexOf('?') === -1 ? '?' : '&';
+    var qs = sep + 'action=analyze&key=' + encodeURIComponent(key) + '&data=' + encodeURIComponent(JSON.stringify(buildAiPayload()));
+    fetch(url + qs)
       .then(function (r) { return r.json(); })
       .then(function (res) {
         btn.disabled = false;

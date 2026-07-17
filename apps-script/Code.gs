@@ -20,6 +20,16 @@ function doGet(e) {
       return jsonOutput({ error: 'unauthorized' });
     }
 
+    // Resumo com IA (aba Análise) — usa GET (não POST) porque o Content
+    // Service do Apps Script não devolve cabeçalhos CORS em respostas de
+    // POST, então o navegador bloqueia a leitura mesmo com a chamada indo
+    // certinho. GET com os dados no querystring evita esse problema (é o
+    // mesmo caminho que já funciona pras abas D0/D-1).
+    if (e.parameter.action === 'analyze') {
+      var data = JSON.parse(e.parameter.data || '{}');
+      return jsonOutput({ text: generateAnalysisSummary(data) });
+    }
+
     var tab = (e.parameter.tab || 'D0').trim();
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName(tab);
@@ -89,29 +99,6 @@ function jsonOutput(payload) {
 // nome CLAUDE_API_KEY. Assim ela nunca é commitada no GitHub nem aparece pro
 // navegador do usuário.
 // ============================================================================
-function doPost(e) {
-  try {
-    var body = JSON.parse((e.postData && e.postData.contents) || '{}');
-    var providedKey = body.key || '';
-    if (ACCESS_KEY === 'TROQUE_AQUI') {
-      throw new Error(
-        'ACCESS_KEY ainda não foi definida. Edite a constante ACCESS_KEY no topo ' +
-        'deste arquivo, direto no editor do Apps Script (script.google.com).'
-      );
-    }
-    if (providedKey !== ACCESS_KEY) {
-      return jsonOutput({ error: 'unauthorized' });
-    }
-
-    if (body.action === 'analyze') {
-      return jsonOutput({ text: generateAnalysisSummary(body.data || {}) });
-    }
-    return jsonOutput({ error: 'ação desconhecida: ' + body.action });
-  } catch (err) {
-    return jsonOutput({ error: String(err) });
-  }
-}
-
 function generateAnalysisSummary(data) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('CLAUDE_API_KEY');
   if (!apiKey) {
