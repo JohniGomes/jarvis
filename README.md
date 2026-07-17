@@ -39,25 +39,34 @@ próprio Apps Script (a chave nunca passa pelo navegador nem pelo GitHub):
 Sem essa propriedade configurada, o botão "Gerar resumo" mostra um erro
 explicando o que falta — o resto do painel funciona normalmente sem ela.
 
+### Opcional: bot&atilde;o de WhatsApp (aba Análise)
+
+As listas de "Não compareceram", "Ficaram menos da metade do turno" e
+"Recusaram quase tudo" mostram um botão de WhatsApp com mensagem
+já preenchida, se houver telefone cadastrado. Pra ativar:
+
+1. Crie uma aba chamada **`Contatos`** na mesma planilha, com duas colunas:
+   `pessoa_entregadora` e `telefone` (mesmo nome usado no D-1; telefone com
+   ou sem DDD/país, o painel completa sozinho).
+2. Não precisa reimplantar nada — a aba já é lida automaticamente. Se ela
+   ainda não existir, os botões simplesmente não aparecem.
+
 ## 2. Publicar a página no GitHub Pages
 
 Este repositório já está pronto: **Settings → Pages → Branch: `main` /
 root**. Depois de alguns minutos a página fica em
 `https://johnigomes.github.io/jarvis/`.
 
-Opcional: em [`index.html`](index.html), na constante `DEFAULT_APPS_SCRIPT_URL`
-(perto do topo do `<script>`), cole a URL `.../exec` do passo 1. A URL não é
-secreta, só facilita — quem abrir a página pela primeira vez já não precisa
-colá-la, só a chave.
+Em [`index.html`](index.html), na constante `DEFAULT_APPS_SCRIPT_URL` (perto
+do topo do `<script>`), cole a URL `.../exec` do passo 1 — é obrigatório,
+já que a tela de login só pede a senha (a URL não é secreta, só fica fixa no
+código pra simplificar).
 
 ## 3. Usar o painel
 
 1. Abra a URL do GitHub Pages.
-2. Na tela de login, cole a **URL do Web App** (`.../exec`, se não tiver
-   preenchido o `DEFAULT_APPS_SCRIPT_URL`) e a **chave de acesso** que você
-   definiu no passo 1.
-3. A URL fica salva no navegador (não é secreta); a chave só fica na sessão
-   da aba — feche o navegador e ela some.
+2. Na tela de login, digite a **senha** que você definiu no passo 1.
+3. A senha fica só na sessão da aba — feche o navegador e ela some.
 
 ## Como os números são calculados
 
