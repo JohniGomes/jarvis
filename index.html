@@ -565,16 +565,36 @@
     });
   }
 
+  // Uma mesma pessoa pode ter linhas com o nome corrompido por acentuação
+  // (ex: "JosÃ© AntÃ´nio" em vez de "José Antônio") em parte dos dados,
+  // enquanto outras linhas dela mantêm o nome certo — a codificação quebrada
+  // não é corrigida pelo normName (não é um acento com marca combinável, são
+  // caracteres literalmente diferentes). Prefere a variante sem esse defeito
+  // pra exibir.
+  function pickCleanName(rs) {
+    for (var i = 0; i < rs.length; i++) {
+      if (rs[i].pessoa_entregadora && rs[i].pessoa_entregadora.indexOf('Ã') === -1) {
+        return rs[i].pessoa_entregadora;
+      }
+    }
+    return rs[0].pessoa_entregadora;
+  }
+
   function aggregateD1(rows) {
-    var byPerson = {};
+    var byId = {};
     rows.forEach(function (r) {
-      var key = normName(r.pessoa_entregadora);
-      if (!byPerson[key]) byPerson[key] = [];
-      byPerson[key].push(r);
+      // Agrupa pelo id_da_pessoa_entregadora (imune a erro de codificação no
+      // nome) em vez do nome — sem isso, a mesma pessoa com o nome corrompido
+      // em algumas linhas virava "duas pessoas" na contagem.
+      var idKey = r.id_da_pessoa_entregadora || normName(r.pessoa_entregadora);
+      if (!byId[idKey]) byId[idKey] = [];
+      byId[idKey].push(r);
     });
     var out = {};
-    Object.keys(byPerson).forEach(function (key) {
-      var rs = byPerson[key];
+    Object.keys(byId).forEach(function (idKey) {
+      var rs = byId[idKey];
+      var nomeLimpo = pickCleanName(rs);
+      var key = normName(nomeLimpo);
       var turnos = rs.length;
       var pedidos = 0, ofertadas = 0, aceitas = 0, rejeitadas = 0, completadas = 0, canceladas = 0;
       var escSum = 0, escCount = 0;
@@ -600,7 +620,7 @@
         if (r.sub_praca) subpracas[r.sub_praca] = true;
       });
       out[key] = {
-        nome: rs[0].pessoa_entregadora,
+        nome: nomeLimpo,
         turnos: turnos,
         pedidos: pedidos,
         corridas_ofertadas: ofertadas,
