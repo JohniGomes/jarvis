@@ -163,7 +163,19 @@
   .mini-table td { font-size: 12px; padding: 5px 4px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
   .empty-hint { font-size: 12.5px; color: var(--text-faint); padding: 6px 0; }
 
-  @media (max-width: 900px) { .kpis--analise { grid-template-columns: repeat(2, 1fr); } .analise-grid { grid-template-columns: 1fr; } }
+  .meta-period { font-size: 12.5px; color: var(--text-muted); }
+  .meta-goals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+  .meta-goal { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
+  .meta-goal__lbl { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+  .meta-goal__val { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .meta-goal__target { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+  .meta-goal__badge { display: inline-block; margin-top: 8px; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+  .meta-goal--hit { border-color: var(--good); }
+  .meta-goal--hit .meta-goal__badge { background: var(--good-soft); color: var(--good); }
+  .meta-goal--miss .meta-goal__badge { background: var(--critical-soft); color: var(--critical); }
+  .meta-bonus { font-size: 14px; font-weight: 600; padding: 12px 16px; border-radius: 10px; background: var(--surface-2); margin-bottom: 18px; }
+
+  @media (max-width: 900px) { .kpis--analise { grid-template-columns: repeat(2, 1fr); } .analise-grid { grid-template-columns: 1fr; } .meta-goals { grid-template-columns: 1fr; } }
 
   details.note { margin-top: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
   details.note summary { cursor: pointer; padding: 13px 16px; font-size: 13.5px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); }
@@ -220,6 +232,7 @@
   <div class="tabs" id="viewTabs">
     <button type="button" class="tab-btn active" data-view="desempenho">Desempenho por entregador</button>
     <button type="button" class="tab-btn" data-view="analise">An&aacute;lise</button>
+    <button type="button" class="tab-btn" data-view="meta">Meta</button>
   </div>
 
   <section class="panel" id="viewDesempenho">
@@ -315,6 +328,45 @@
             <table class="mini-table">
               <thead><tr><th>Entregador</th><th>Ofert.</th><th>Recus.</th><th>% Recusa</th><th>A&ccedil;&atilde;o</th></tr></thead>
               <tbody id="rejectionBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="viewMeta" hidden>
+    <div class="panel__bar">
+      <span class="panel__title">Meta do m&ecirc;s</span>
+      <span class="meta-period" id="metaPeriodLabel"></span>
+    </div>
+    <div class="analise-body">
+      <div class="meta-goals" id="metaGoalsRow"></div>
+      <div class="meta-bonus" id="metaBonusLine"></div>
+
+      <div class="sim-card">
+        <div class="sim-card__title">Quanto falta pra bater a meta</div>
+        <div class="sim-card__result" id="metaGapResult"></div>
+      </div>
+
+      <div class="analise-grid">
+        <div class="analise-col" style="grid-column: span 2;">
+          <h3>Maiores oportunidades <span class="count-badge" id="metaOppCount">0</span></h3>
+          <p class="analise-col__hint">Pessoas com mais horas escaladas "perdidas" no m&ecirc;s (n&atilde;o compareceram ou ficaram pouco online) &mdash; recuperar essas horas &eacute; o que mais pesa pra bater a meta.</p>
+          <div class="table-scroll">
+            <table class="mini-table">
+              <thead><tr><th>Entregador</th><th>Motivo</th><th>Horas escaladas</th><th>Horas perdidas</th><th>A&ccedil;&atilde;o</th></tr></thead>
+              <tbody id="metaOppBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="analise-col">
+          <h3>Mais cancelamentos <span class="count-badge" id="metaCancelCount">0</span></h3>
+          <p class="analise-col__hint">Maiores respons&aacute;veis por corridas aceitas e canceladas (pesa na Taxa Conclus&atilde;o).</p>
+          <div class="table-scroll">
+            <table class="mini-table">
+              <thead><tr><th>Entregador</th><th>Cancel.</th><th>A&ccedil;&atilde;o</th></tr></thead>
+              <tbody id="metaCancelBody"></tbody>
             </table>
           </div>
         </div>
@@ -598,6 +650,7 @@
       var turnos = rs.length;
       var pedidos = 0, ofertadas = 0, aceitas = 0, rejeitadas = 0, completadas = 0, canceladas = 0;
       var escSum = 0, escCount = 0;
+      var agendadoSec = 0, realizadoSec = 0;
       var subpracas = {};
       rs.forEach(function (r) {
         pedidos += Number(r.numero_de_pedidos_aceitos_e_concluidos) || 0;
@@ -606,6 +659,8 @@
         rejeitadas += Number(r.numero_de_corridas_rejeitadas) || 0;
         completadas += Number(r.numero_de_corridas_completadas) || 0;
         canceladas += Number(r.numero_de_corridas_canceladas_pela_pessoa_entregadora) || 0;
+        agendadoSec += toSeconds(r.duracao_do_periodo);
+        realizadoSec += toSeconds(r.tempo_disponivel_absoluto);
         // tempo_disponivel_escalado já vem como % pronto da plataforma (não é
         // simplesmente tempo online ÷ duração do turno - em boa parte das
         // linhas esses valores divergem, então a plataforma usa alguma regra
@@ -630,6 +685,8 @@
         canceladas: canceladas,
         taxa_aceite_pct: ofertadas ? Math.round((100 * aceitas / ofertadas) * 100) / 100 : 0,
         tempo_online_pct: escCount ? Math.round((escSum / escCount) * 100) / 100 : 0,
+        agendadoSec: agendadoSec,
+        realizadoSec: realizadoSec,
         subpracas: Object.keys(subpracas).sort(),
       };
     });
@@ -941,6 +998,116 @@
       });
   }
 
+  // ================= Meta do mês =================
+
+  var METAS = { aderencia: 15, conclusao: 95, online: 65 };
+
+  function computeMeta(rows, d1ById) {
+    var kpisMes = computeKpis(d1ById);
+    var aderenciaDetail = computeAderenciaDetail(rows);
+    var tempoOnlineDetail = computeTempoOnlineDetail(rows);
+
+    var goals = [
+      { key: 'aderencia', label: 'Aderência', value: aderenciaDetail.pct, target: METAS.aderencia, op: '>=' },
+      { key: 'conclusao', label: 'Taxa Conclusão', value: kpisMes.taxa_conclusao_pct, target: METAS.conclusao, op: '>=' },
+      { key: 'online', label: 'Tempo Online', value: tempoOnlineDetail.pct, target: METAS.online, op: '>' },
+    ];
+    goals.forEach(function (g) {
+      g.hit = g.op === '>' ? g.value > g.target : g.value >= g.target;
+      g.gap = Math.round((g.target - g.value) * 100) / 100;
+    });
+    var allHit = goals.every(function (g) { return g.hit; });
+
+    var pessoas = Object.keys(d1ById).map(function (key) { return d1ById[key]; });
+
+    var opportunities = pessoas
+      .map(function (p) {
+        var perdidoSec = Math.max(0, p.agendadoSec - p.realizadoSec);
+        var motivo = p.realizadoSec <= 0 ? 'Não compareceu' : (p.tempo_online_pct < 50 ? 'Baixo tempo online' : null);
+        return { p: p, perdidoSec: perdidoSec, motivo: motivo };
+      })
+      .filter(function (o) { return o.motivo && o.perdidoSec > 0; })
+      .sort(function (a, b) { return b.perdidoSec - a.perdidoSec; })
+      .slice(0, 15);
+
+    var cancelRanking = pessoas
+      .filter(function (p) { return p.canceladas > 0; })
+      .sort(function (a, b) { return b.canceladas - a.canceladas; })
+      .slice(0, 10);
+
+    // Tempo Online necessário pro time bater a meta de Aderência, mantendo as
+    // horas esperadas (vagas × duração) fixas — mesma relação do simulador da
+    // aba Análise, só que resolvida ao contrário (alvo → % necessário).
+    var targetOnlineForAderencia = null;
+    if (aderenciaDetail.pct > 0 && tempoOnlineDetail.pct > 0) {
+      targetOnlineForAderencia = Math.round((METAS.aderencia * tempoOnlineDetail.pct / aderenciaDetail.pct) * 100) / 100;
+    }
+
+    return {
+      goals: goals,
+      allHit: allHit,
+      aderenciaDetail: aderenciaDetail,
+      tempoOnlineDetail: tempoOnlineDetail,
+      opportunities: opportunities,
+      cancelRanking: cancelRanking,
+      targetOnlineForAderencia: targetOnlineForAderencia,
+    };
+  }
+
+  function fmtPct(v) { return v.toFixed(2).replace('.', ',') + '%'; }
+
+  function renderMeta(meta, periodLabel) {
+    document.getElementById('metaPeriodLabel').textContent = periodLabel;
+
+    var goalsRow = document.getElementById('metaGoalsRow');
+    goalsRow.innerHTML = meta.goals.map(function (g) {
+      var cls = g.hit ? 'meta-goal--hit' : 'meta-goal--miss';
+      var alvoTxt = (g.op === '>' ? '> ' : '≥ ') + g.target + '%';
+      var gapTxt = g.hit ? 'Meta batida' : ('Faltam ' + Math.abs(g.gap).toFixed(2).replace('.', ',') + 'pp');
+      return '<div class="meta-goal ' + cls + '">' +
+        '<div class="meta-goal__lbl">' + g.label + '</div>' +
+        '<div class="meta-goal__val">' + fmtPct(g.value) + '</div>' +
+        '<div class="meta-goal__target">Meta: ' + alvoTxt + '</div>' +
+        '<span class="meta-goal__badge">' + gapTxt + '</span>' +
+        '</div>';
+    }).join('');
+
+    var bonusLine = document.getElementById('metaBonusLine');
+    if (meta.allHit) {
+      bonusLine.textContent = '✅ Os 3 indicadores bateram a meta — bônus de R$500 garantido no período mostrado.';
+    } else {
+      var faltando = meta.goals.filter(function (g) { return !g.hit; }).map(function (g) { return g.label; }).join(', ');
+      bonusLine.textContent = '❌ Ainda faltando: ' + faltando + '. Sem os 3 juntos, o bônus não é liberado.';
+    }
+
+    var gapResult = document.getElementById('metaGapResult');
+    if (meta.targetOnlineForAderencia !== null) {
+      gapResult.innerHTML = 'Pra bater a meta de Aderência (' + METAS.aderencia + '%), o Tempo Online do time precisa chegar a pelo menos <b>' +
+        meta.targetOnlineForAderencia.toFixed(2).replace('.', ',') + '%</b> (hoje está em ' + fmtPct(meta.tempoOnlineDetail.pct) + ').';
+    } else {
+      gapResult.innerHTML = '<span class="empty-hint">Sem dados suficientes no mês pra calcular.</span>';
+    }
+
+    document.getElementById('metaOppCount').textContent = meta.opportunities.length;
+    var oppBody = document.getElementById('metaOppBody');
+    oppBody.innerHTML = meta.opportunities.length
+      ? meta.opportunities.map(function (o) {
+          var p = o.p;
+          var msg = 'Olá, ' + p.nome + '! Vi que você ' + (o.motivo === 'Não compareceu' ? 'não compareceu em alguns turnos' : 'ficou pouco tempo online em alguns turnos') + ' esse mês. Aconteceu algo? Estou aqui pra te ajudar!';
+          return '<tr><td>' + p.nome + '</td><td>' + o.motivo + '</td><td>' + fmtHoras(p.agendadoSec) + '</td><td>' + fmtHoras(o.perdidoSec) + '</td><td>' + whatsappButtonHtml(p.nome, msg) + '</td></tr>';
+        }).join('')
+      : '<tr><td colspan="5" class="empty-hint">Nenhuma oportunidade encontrada.</td></tr>';
+
+    document.getElementById('metaCancelCount').textContent = meta.cancelRanking.length;
+    var cancelBody = document.getElementById('metaCancelBody');
+    cancelBody.innerHTML = meta.cancelRanking.length
+      ? meta.cancelRanking.map(function (p) {
+          var msg = 'Olá, ' + p.nome + '! Vi que você cancelou algumas corridas depois de aceitar. Aconteceu algo? Estou aqui pra te ajudar!';
+          return '<tr><td>' + p.nome + '</td><td>' + p.canceladas + '</td><td>' + whatsappButtonHtml(p.nome, msg) + '</td></tr>';
+        }).join('')
+      : '<tr><td colspan="3" class="empty-hint">Ninguém com cancelamentos.</td></tr>';
+  }
+
   function renderTable() {
     var q = document.getElementById('searchInput').value.trim().toLowerCase();
     var statusFilter = document.getElementById('statusFilter').value;
@@ -1022,6 +1189,19 @@
     renderKpis(kpisPrev);
     renderTable();
 
+    // Meta do mês: sempre o mês corrente do dado mais recente disponível,
+    // independente do filtro De/Até usado nas outras abas (a meta é mensal).
+    if (maxDataDate) {
+      var monthRows = RAW_D1.filter(function (r) {
+        var d = parseDateBR(r.data_do_periodo);
+        return d && d.getFullYear() === maxDataDate.getFullYear() && d.getMonth() === maxDataDate.getMonth();
+      });
+      var monthD1ById = aggregateD1(monthRows);
+      var meta = computeMeta(monthRows, monthD1ById);
+      var monthLabel = maxDataDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+      renderMeta(meta, monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1));
+    }
+
     document.getElementById('d1DateLabel').textContent = 'Desempenho de ' + dateLabel;
     document.getElementById('pageFooter').textContent = 'Cruzamento por nome entre as abas D0 e D-1 da planilha · dados de ' + dateLabel;
     var compareNote = document.getElementById('compareNote');
@@ -1094,6 +1274,7 @@
         var view = btn.getAttribute('data-view');
         document.getElementById('viewDesempenho').hidden = view !== 'desempenho';
         document.getElementById('viewAnalise').hidden = view !== 'analise';
+        document.getElementById('viewMeta').hidden = view !== 'meta';
       });
     });
     document.getElementById('simRange').addEventListener('input', renderSimulator);
