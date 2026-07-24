@@ -173,7 +173,6 @@
   .meta-goal--hit { border-color: var(--good); }
   .meta-goal--hit .meta-goal__badge { background: var(--good-soft); color: var(--good); }
   .meta-goal--miss .meta-goal__badge { background: var(--critical-soft); color: var(--critical); }
-  .meta-bonus { font-size: 14px; font-weight: 600; padding: 12px 16px; border-radius: 10px; background: var(--surface-2); margin-bottom: 18px; }
 
   @media (max-width: 900px) { .kpis--analise { grid-template-columns: repeat(2, 1fr); } .analise-grid { grid-template-columns: 1fr; } .meta-goals { grid-template-columns: 1fr; } }
 
@@ -297,6 +296,12 @@
         <div class="sim-card__result" id="simResult"></div>
       </div>
 
+      <div class="sim-card">
+        <div class="sim-card__title">Ader&ecirc;ncia por turno</div>
+        <div class="sim-card__hint">Qual turno est&aacute; performando melhor (ou pior) no per&iacute;odo selecionado, somando todas as subpra&ccedil;as e dias.</div>
+        <div id="turnoChart" style="margin-top: 10px;"></div>
+      </div>
+
       <div class="ai-card">
         <div class="ai-card__row">
           <div class="sim-card__title">Resumo com IA</div>
@@ -342,7 +347,6 @@
     </div>
     <div class="analise-body">
       <div class="meta-goals" id="metaGoalsRow"></div>
-      <div class="meta-bonus" id="metaBonusLine"></div>
 
       <div class="sim-card">
         <div class="sim-card__title">Quanto falta pra bater a meta</div>
@@ -542,6 +546,89 @@
   }
   function computeAderencia(rows) {
     return computeAderenciaDetail(rows).pct;
+  }
+
+  // Aderência agrupada por turno (periodo), somando todas as subpraças e dias
+  // do período selecionado — mesma lógica de computeAderenciaDetail (agrupa
+  // por subpraça+turno+dia pra não subcontar vaga esperada), só que o
+  // resultado final é quebrado por turno em vez de um número só.
+  function computeAderenciaPorTurno(rows) {
+    var subGroups = {};
+    var realizadoPorPeriodo = {};
+    rows.forEach(function (r) {
+      var subKey = subpracaKey(r) + '|' + r.periodo + '|' + r.data_do_periodo;
+      if (!subGroups[subKey]) {
+        subGroups[subKey] = {
+          periodo: r.periodo,
+          vagas: Number(r.numero_minimo_de_entregadores_regulares_na_escala) || 0,
+          dur: toSeconds(r.duracao_do_periodo),
+        };
+      }
+      realizadoPorPeriodo[r.periodo] = (realizadoPorPeriodo[r.periodo] || 0) + toSeconds(r.tempo_disponivel_absoluto);
+    });
+    var esperadoPorPeriodo = {};
+    Object.keys(subGroups).forEach(function (k) {
+      var g = subGroups[k];
+      esperadoPorPeriodo[g.periodo] = (esperadoPorPeriodo[g.periodo] || 0) + g.vagas * g.dur;
+    });
+    var periodos = sortPeriodos(Object.keys(esperadoPorPeriodo));
+    return periodos.map(function (p) {
+      var esperado = esperadoPorPeriodo[p] || 0;
+      var realizado = realizadoPorPeriodo[p] || 0;
+      return { periodo: p, pct: esperado ? Math.round((100 * realizado / esperado) * 100) / 100 : 0 };
+    });
+  }
+
+  var PERIODO_SHORT = {
+    'MADRUGADA 00H00-00H59': 'Madrugada',
+    'M8 MANHA 06H00-07H59': 'M8 Manhã',
+    'MANHA 08H00-11H29': 'Manhã',
+    'ALMOCO 11H30-15H29': 'Almoço',
+    'TARDE 15H30-18H29': 'Tarde',
+    'JANTAR CPS 18H30-21H29': 'Jantar CPS',
+    'JANTAR 21H30-23H59': 'Jantar',
+  };
+
+  // Gráfico de linha simples em SVG puro (sem biblioteca externa).
+  function renderLineChart(containerId, data, opts) {
+    opts = opts || {};
+    var container = document.getElementById(containerId);
+    if (!data.length) {
+      container.innerHTML = '<span class="empty-hint">Sem dados suficientes no período pra montar o gráfico.</span>';
+      return;
+    }
+    var w = 640, h = 220, padL = 38, padR = 16, padT = 20, padB = 36;
+    var maxVal = Math.max.apply(null, data.map(function (d) { return d.pct; }));
+    var yMax = Math.max(10, Math.ceil((maxVal * 1.2) / 5) * 5);
+    var stepX = data.length > 1 ? (w - padL - padR) / (data.length - 1) : 0;
+    function xAt(i) { return data.length > 1 ? padL + i * stepX : (w / 2); }
+    function yAt(v) { return padT + (h - padT - padB) * (1 - v / yMax); }
+
+    var gridLines = '';
+    var ticks = 4;
+    for (var t = 0; t <= ticks; t++) {
+      var val = (yMax / ticks) * t;
+      var y = yAt(val);
+      gridLines += '<line x1="' + padL + '" y1="' + y + '" x2="' + (w - padR) + '" y2="' + y + '" stroke="var(--line)" stroke-width="1"></line>';
+      gridLines += '<text x="' + (padL - 6) + '" y="' + (y + 4) + '" font-size="10" fill="var(--text-faint)" text-anchor="end">' + Math.round(val) + '%</text>';
+    }
+
+    var points = data.map(function (d, i) { return xAt(i) + ',' + yAt(d.pct); }).join(' ');
+    var circles = data.map(function (d, i) {
+      return '<circle cx="' + xAt(i) + '" cy="' + yAt(d.pct) + '" r="3.5" fill="var(--accent)"></circle>' +
+        '<text x="' + xAt(i) + '" y="' + (yAt(d.pct) - 10) + '" font-size="10.5" font-weight="700" fill="var(--text)" text-anchor="middle">' +
+        d.pct.toFixed(1).replace('.', ',') + '%</text>';
+    }).join('');
+    var labels = data.map(function (d, i) {
+      var lbl = opts.labelFor ? opts.labelFor(d) : String(d.periodo);
+      return '<text x="' + xAt(i) + '" y="' + (h - padB + 16) + '" font-size="9.5" fill="var(--text-muted)" text-anchor="middle">' + lbl + '</text>';
+    }).join('');
+
+    container.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%; height:auto; display:block;">' +
+      gridLines +
+      '<polyline points="' + points + '" fill="none" stroke="var(--accent)" stroke-width="2"></polyline>' +
+      circles + labels +
+      '</svg>';
   }
 
   // Tempo online (KPI de topo) = tempo online realizado ÷ duração escalada,
@@ -891,12 +978,17 @@
       '<br><span class="empty-hint">M&aacute;ximo poss&iacute;vel com a escala atual (100% do tempo j&aacute; escalado): ' + fmtHoras(maxPossivelHoras * 3600) + '.</span>';
   }
 
-  function renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail) {
+  function renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail, d1Rows) {
     currentAderenciaDetail = aderenciaDetail;
     currentTempoOnlineDetail = tempoOnlineDetail;
     currentAnalysis = analysis;
     document.getElementById('aiSummaryResult').innerHTML = '';
     document.getElementById('aiSummaryBtn').disabled = false;
+
+    var turnoData = computeAderenciaPorTurno(d1Rows);
+    renderLineChart('turnoChart', turnoData, {
+      labelFor: function (d) { return PERIODO_SHORT[String(d.periodo).toUpperCase()] || d.periodo; },
+    });
 
     var esperadoSec = aderenciaDetail.esperadoSec;
     var realizadoSec = aderenciaDetail.realizadoSec;
@@ -1043,6 +1135,15 @@
       targetOnlineForAderencia = Math.round((METAS.aderencia * tempoOnlineDetail.pct / aderenciaDetail.pct) * 100) / 100;
     }
 
+    // Quantos entregadores seriam necessários pra bater a meta de Aderência,
+    // se mantivéssemos a mesma média de horas realizadas por entregador do
+    // mês (não é o número de vagas exigidas — é uma estimativa de "headcount"
+    // assumindo o mesmo desempenho médio de hoje).
+    var totalDrivers = pessoas.length;
+    var avgRealizadoPorEntregadorSec = totalDrivers ? aderenciaDetail.realizadoSec / totalDrivers : 0;
+    var necessarioSec = aderenciaDetail.esperadoSec * (METAS.aderencia / 100);
+    var entregadoresNecessarios = avgRealizadoPorEntregadorSec > 0 ? Math.ceil(necessarioSec / avgRealizadoPorEntregadorSec) : null;
+
     return {
       goals: goals,
       allHit: allHit,
@@ -1051,6 +1152,8 @@
       opportunities: opportunities,
       cancelRanking: cancelRanking,
       targetOnlineForAderencia: targetOnlineForAderencia,
+      totalDrivers: totalDrivers,
+      entregadoresNecessarios: entregadoresNecessarios,
     };
   }
 
@@ -1072,18 +1175,18 @@
         '</div>';
     }).join('');
 
-    var bonusLine = document.getElementById('metaBonusLine');
-    if (meta.allHit) {
-      bonusLine.textContent = '✅ Os 3 indicadores bateram a meta — bônus de R$500 garantido no período mostrado.';
-    } else {
-      var faltando = meta.goals.filter(function (g) { return !g.hit; }).map(function (g) { return g.label; }).join(', ');
-      bonusLine.textContent = '❌ Ainda faltando: ' + faltando + '. Sem os 3 juntos, o bônus não é liberado.';
-    }
-
     var gapResult = document.getElementById('metaGapResult');
     if (meta.targetOnlineForAderencia !== null) {
-      gapResult.innerHTML = 'Pra bater a meta de Aderência (' + METAS.aderencia + '%), o Tempo Online do time precisa chegar a pelo menos <b>' +
-        meta.targetOnlineForAderencia.toFixed(2).replace('.', ',') + '%</b> (hoje está em ' + fmtPct(meta.tempoOnlineDetail.pct) + ').';
+      var linhas = [];
+      linhas.push('Pra bater a meta de Aderência (' + METAS.aderencia + '%), o Tempo Online do time precisa chegar a pelo menos <b>' +
+        meta.targetOnlineForAderencia.toFixed(2).replace('.', ',') + '%</b> (hoje está em ' + fmtPct(meta.tempoOnlineDetail.pct) + ').');
+      if (meta.entregadoresNecessarios !== null) {
+        var diff = meta.entregadoresNecessarios - meta.totalDrivers;
+        var diffTxt = diff > 0 ? (' (mais ' + diff + ' do que hoje)') : ' (o time atual já daria conta, no ritmo médio de hoje)';
+        linhas.push('Mantendo a mesma média de horas realizadas por pessoa deste mês, seriam necessários <b>' +
+          meta.entregadoresNecessarios + ' entregadores</b> no total' + diffTxt + '.');
+      }
+      gapResult.innerHTML = linhas.join('<br>');
     } else {
       gapResult.innerHTML = '<span class="empty-hint">Sem dados suficientes no mês pra calcular.</span>';
     }
@@ -1185,7 +1288,7 @@
       kpisPrev.tempo_online_pct = computeTempoOnlineTotal(d1RowsPrev);
     }
     var analysis = computeAnalysis(d1ById);
-    renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail);
+    renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail, d1Rows);
     renderKpis(kpisPrev);
     renderTable();
 
