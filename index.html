@@ -241,6 +241,10 @@
         <label>De <input type="date" id="dateFromInput"></label>
         <label>At&eacute; <input type="date" id="dateToInput"></label>
       </div>
+      <select id="compareModeSelect" title="Comparar com">
+        <option value="week">Comparar c/ semana anterior</option>
+        <option value="month">Comparar c/ m&ecirc;s anterior</option>
+      </select>
       <select id="turnoFilter"><option value="all">Todos os turnos</option></select>
       <div class="search">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -505,6 +509,17 @@
     var nd = new Date(d.getTime());
     nd.setDate(nd.getDate() + days);
     return nd;
+  }
+  // Desloca por meses de verdade (não só "±30 dias"), preservando o dia do
+  // mês quando possível e ajustando pro último dia do mês alvo quando ele é
+  // mais curto (ex: 31/07 - 1 mês = 30/06, não 01/07 do jeito ingênuo).
+  function shiftMonths(d, n) {
+    var totalMonth = d.getMonth() + n;
+    var year = d.getFullYear() + Math.floor(totalMonth / 12);
+    var month = ((totalMonth % 12) + 12) % 12;
+    var lastDayOfTargetMonth = new Date(year, month + 1, 0).getDate();
+    var day = Math.min(d.getDate(), lastDayOfTargetMonth);
+    return new Date(year, month, day);
   }
   function inDateRange(r, from, to) {
     var d = parseDateBR(r.data_do_periodo);
@@ -900,6 +915,7 @@
   var merged = [];
   var kpis = {};
   var currentPrevById = {};
+  var currentCompareLabel = 'sem. ant.';
 
   // diff em pontos percentuais (pra métricas que já são %)
   function deltaPP(curr, prev, opts) {
@@ -908,14 +924,14 @@
     var diff = curr - prev;
     var cls = diff > 0.005 ? 'delta--up' : diff < -0.005 ? 'delta--down' : '';
     var arrow = diff > 0.005 ? '▲' : diff < -0.005 ? '▼' : '•';
-    var suffix = opts.compact ? '' : ' vs sem. ant.';
+    var suffix = opts.compact ? '' : (' vs ' + currentCompareLabel);
     return '<span class="delta ' + cls + '">' + arrow + ' ' + (diff >= 0 ? '+' : '') + diff.toFixed(1).replace('.', ',') + 'pp' + suffix + '</span>';
   }
   // diff percentual relativo (pra contagens: pedidos, corridas, entregadores...)
   function deltaPct(curr, prev, opts) {
     opts = opts || {};
     if (prev === null || prev === undefined) return '';
-    var suffix = opts.compact ? '' : ' vs sem. ant.';
+    var suffix = opts.compact ? '' : (' vs ' + currentCompareLabel);
     if (!prev) return curr ? '<span class="delta delta--up">▲ novo' + suffix + '</span>' : '';
     var diff = ((curr - prev) / prev) * 100;
     var cls = diff > 0.5 ? 'delta--up' : diff < -0.5 ? 'delta--down' : '';
@@ -1261,8 +1277,10 @@
     var fromDate = parseISOInput(dateFromInput.value) || minDataDate || new Date();
     var toDate = parseISOInput(dateToInput.value) || maxDataDate || new Date();
     if (fromDate.getTime() > toDate.getTime()) { var tmp = fromDate; fromDate = toDate; toDate = tmp; }
-    var prevFrom = shiftDate(fromDate, -7);
-    var prevTo = shiftDate(toDate, -7);
+    var compareMode = document.getElementById('compareModeSelect').value;
+    var prevFrom = compareMode === 'month' ? shiftMonths(fromDate, -1) : shiftDate(fromDate, -7);
+    var prevTo = compareMode === 'month' ? shiftMonths(toDate, -1) : shiftDate(toDate, -7);
+    currentCompareLabel = compareMode === 'month' ? 'mês ant.' : 'sem. ant.';
     var dateLabel = fromDate.getTime() === toDate.getTime() ? formatDateBR(fromDate) : (formatDateBR(fromDate) + ' – ' + formatDateBR(toDate));
     currentPeriodLabel = dateLabel;
 
@@ -1307,10 +1325,11 @@
 
     document.getElementById('d1DateLabel').textContent = 'Desempenho de ' + dateLabel;
     document.getElementById('pageFooter').textContent = 'Cruzamento por nome entre as abas D0 e D-1 da planilha · dados de ' + dateLabel;
+    var comparePeriodoLabel = compareMode === 'month' ? 'o mês anterior' : 'a semana anterior';
     var compareNote = document.getElementById('compareNote');
     compareNote.textContent = d1RowsPrev.length
-      ? 'Comparando com a semana anterior: ' + formatDateBR(prevFrom) + ' – ' + formatDateBR(prevTo)
-      : 'Sem dados da semana anterior (' + formatDateBR(prevFrom) + ' – ' + formatDateBR(prevTo) + ') para comparar.';
+      ? 'Comparando com ' + comparePeriodoLabel + ': ' + formatDateBR(prevFrom) + ' – ' + formatDateBR(prevTo)
+      : 'Sem dados de ' + comparePeriodoLabel + ' (' + formatDateBR(prevFrom) + ' – ' + formatDateBR(prevTo) + ') para comparar.';
 
     var onlyD0 = merged.filter(function (p) { return p.d0 && !p.d1; });
     var noteEl = document.getElementById('unmatchedNote');
@@ -1347,6 +1366,7 @@
     dateToInput.value = toISOInput(maxDataDate);
     dateFromInput.addEventListener('change', recompute);
     dateToInput.addEventListener('change', recompute);
+    document.getElementById('compareModeSelect').addEventListener('change', recompute);
 
     document.querySelectorAll('#mainTable thead th').forEach(function (th) {
       th.addEventListener('click', function () {
