@@ -36,24 +36,25 @@ explicando o que falta — o resto do painel funciona normalmente sem ela.
 
 ### CPF, telefone e bot&atilde;o de WhatsApp
 
-Nome, CPF e telefone vêm de uma **planilha externa** (não é a mesma planilha
-do D-1), combinando duas abas por nome (`getPosVendasRows` no `Code.gs`):
+Nome, CPF e telefone vêm de duas abas combinadas por nome
+(`getPosVendasRows` no `Code.gs`):
 
 - **`Entregadores`**: lista completa dos aprovados, colunas `Nome` / `CPF` /
   `Telefone` (cabeçalho lido pelo nome, não por posição) — fonte principal.
+  Fica na **mesma planilha oficial do D-1**.
 - **`Pós-vendas (Messias)`**: contato manual de pós-venda (colunas fixas
-  `B`=nome, `E`=telefone, `F`=CPF) — usada só pra completar quem não está na
-  lista de aprovados ou ficou com CPF/telefone em branco lá.
-
-O ID dessa planilha está fixo em `POS_VENDAS_SPREADSHEET_ID` no topo do
-`Code.gs` — troque lá se a planilha mudar. A conta que executa o Apps Script
-(**Executar como: Eu**) precisa ter acesso de leitura a essa planilha.
+  `B`=nome, `E`=telefone, `F`=CPF), numa **planilha externa separada** — usada
+  só pra completar quem não está na lista de aprovados ou ficou com
+  CPF/telefone em branco lá. O ID dessa planilha externa está fixo em
+  `POS_VENDAS_SPREADSHEET_ID` no topo do `Code.gs` — troque lá se ela mudar.
+  A conta que executa o Apps Script (**Executar como: Eu**) precisa ter
+  acesso de leitura a ela.
 
 O CPF aparece abaixo do nome em todas as abas. O botão de WhatsApp (ícone,
 sem texto) aparece nas listas da aba Análise ("Não compareceram", "Ficaram
 menos da metade do turno", "Recusaram quase tudo") e da aba Meta ("Maiores
-oportunidades", "Mais cancelamentos"), com mensagem já preenchida — só
-quando o telefone for encontrado pelo nome.
+oportunidades", "Mais cancelamentos"), com mensagem já preenchida (usando só
+o primeiro nome da pessoa) — só quando o telefone for encontrado pelo nome.
 
 ## 2. Publicar a página no GitHub Pages
 

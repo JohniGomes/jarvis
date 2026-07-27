@@ -663,6 +663,11 @@
       .replace(new RegExp('[̀-ͯ]', 'g'), '')
       .replace(/\s+/g, ' ');
   }
+  // Primeiro nome, pra usar nas mensagens do WhatsApp (mais pessoal que o
+  // nome completo). As colunas/listas continuam mostrando o nome inteiro.
+  function firstName(name) {
+    return (name || '').trim().split(/\s+/)[0] || name;
+  }
 
   // ---- WhatsApp e CPF (planilha externa "Pós-vendas": nome + telefone + CPF) ----
   var POS_VENDAS_BY_NAME = {};
@@ -1007,7 +1012,7 @@
     var noShowList = document.getElementById('noShowList');
     noShowList.innerHTML = analysis.noShow.length
       ? analysis.noShow.map(function (p) {
-          var msg = 'Olá, ' + p.nome + '! vi que no período ' + currentPeriodLabel + ' você se agendou mas não compareceu. Aconteceu algo? Estou aqui para te ajudar.';
+          var msg = 'Olá, ' + firstName(p.nome) + '! vi que no período ' + currentPeriodLabel + ' você se agendou mas não compareceu. Aconteceu algo? Estou aqui para te ajudar.';
           return '<span class="chip">' + nameWithCpfHtml(p.nome) + whatsappButtonHtml(p.nome, msg) + '</span>';
         }).join('')
       : '<span class="empty-hint">Ninguém — todo mundo que agendou apareceu.</span>';
@@ -1015,7 +1020,7 @@
     var lowOnlineBody = document.getElementById('lowOnlineBody');
     lowOnlineBody.innerHTML = analysis.lowOnline.length
       ? analysis.lowOnline.map(function (p) {
-          var msg = 'Olá, ' + p.nome + '! vi que no período ' + currentPeriodLabel + ' você ficou menos da metade do turno online. Aconteceu algo? Estou aqui para te ajudar.';
+          var msg = 'Olá, ' + firstName(p.nome) + '! vi que no período ' + currentPeriodLabel + ' você ficou menos da metade do turno online. Aconteceu algo? Estou aqui para te ajudar.';
           return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + p.turnos + '</td><td>' + p.tempo_online_pct.toFixed(1).replace('.', ',') + '%</td><td>' + whatsappButtonHtml(p.nome, msg) + '</td></tr>';
         }).join('')
       : '<tr><td colspan="4" class="empty-hint">Ninguém abaixo de 50%.</td></tr>';
@@ -1024,7 +1029,7 @@
     rejectionBody.innerHTML = analysis.rejectionOutliers.length
       ? analysis.rejectionOutliers.map(function (p) {
           var pctRec = Math.round((100 * p.rejeitadas / p.corridas_ofertadas) * 10) / 10;
-          var msg = 'Olá, ' + p.nome + '! vi que no período ' + currentPeriodLabel + ' você recusou mais de 90% das corridas. Aconteceu algo? Estou aqui para te ajudar.';
+          var msg = 'Olá, ' + firstName(p.nome) + '! vi que no período ' + currentPeriodLabel + ' você recusou mais de 90% das corridas. Aconteceu algo? Estou aqui para te ajudar.';
           return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + p.corridas_ofertadas + '</td><td>' + p.rejeitadas + '</td><td>' + pctRec.toFixed(1).replace('.', ',') + '%</td><td>' + whatsappButtonHtml(p.nome, msg) + '</td></tr>';
         }).join('')
       : '<tr><td colspan="5" class="empty-hint">Ninguém com recusa acima de 90%.</td></tr>';
@@ -1189,7 +1194,7 @@
           var horasAgendadas = Math.round(p.agendadoSec / 3600);
           var horasPerdidas = Math.round(o.perdidoSec / 3600);
           var valor = Math.round(horasPerdidas * VALOR_POR_HORA_ONLINE);
-          var msg = 'Olá, ' + p.nome + '. Vi que no período ' + periodLabel + ' a soma dos seus turnos deu ' + horasAgendadas +
+          var msg = 'Olá, ' + firstName(p.nome) + '. Vi que no período ' + periodLabel + ' a soma dos seus turnos deu ' + horasAgendadas +
             ' horas, mas você ficou offline por ' + horasPerdidas + ' horas. Ficou na mesa R$ ' + valor.toLocaleString('pt-BR') +
             ', que você deixou de ganhar. Aconteceu algo? Estou aqui pra te ajudar.';
           return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + o.motivo + '</td><td>' + fmtHoras(p.agendadoSec) + '</td><td>' + fmtHoras(o.perdidoSec) + '</td><td>' + whatsappButtonHtml(p.nome, msg) + '</td></tr>';
@@ -1200,7 +1205,7 @@
     var cancelBody = document.getElementById('metaCancelBody');
     cancelBody.innerHTML = meta.cancelRanking.length
       ? meta.cancelRanking.map(function (p) {
-          var msg = 'Olá, ' + p.nome + '! Vi que no período ' + periodLabel + ' você cancelou ' + p.canceladas + ' corridas. Aconteceu algo? Estou aqui pra te ajudar!';
+          var msg = 'Olá, ' + firstName(p.nome) + '! Vi que no período ' + periodLabel + ' você cancelou ' + p.canceladas + ' corridas. Aconteceu algo? Estou aqui pra te ajudar!';
           return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + p.canceladas + '</td><td>' + whatsappButtonHtml(p.nome, msg) + '</td></tr>';
         }).join('')
       : '<tr><td colspan="3" class="empty-hint">Ninguém com cancelamentos.</td></tr>';

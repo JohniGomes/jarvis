@@ -4,11 +4,12 @@
 // precisam ficar restritos.
 // ============================================================================
 
-// Planilha externa com nome, telefone e CPF dos entregadores. Não é a mesma
-// planilha do D-1. Duas abas são combinadas (nome é a chave de match):
-//   - "Entregadores": lista completa dos aprovados (Nome/CPF/Telefone),
-//     bem mais abrangente — é a fonte principal.
-//   - "Pós-vendas (Messias)": contato manual de pós-venda, usada só como
+// Nome, telefone e CPF dos entregadores vêm de duas abas combinadas (nome é
+// a chave de match):
+//   - "Entregadores": lista completa dos aprovados (Nome/CPF/Telefone), na
+//     MESMA planilha oficial do D-1 — é a fonte principal.
+//   - "Pós-vendas (Messias)": contato manual de pós-venda, numa planilha
+//     EXTERNA separada (POS_VENDAS_SPREADSHEET_ID abaixo). Usada só como
 //     reforço pra quem não estiver na lista de aprovados ou tiver CPF/
 //     telefone em branco lá.
 var POS_VENDAS_SPREADSHEET_ID = '169jmX5N4m8icBi0MA0kiMyCF-J9irtXVUGkI7Q3ene0';
@@ -74,22 +75,23 @@ function doGet(e) {
   }
 }
 
-// Combina as duas abas da planilha de contatos (ver comentário acima da
-// constante), casando por nome. "Entregadores" entra primeiro (fonte
-// principal); "Pós-vendas" só completa quem não apareceu lá ou ficou com
-// CPF/telefone vazio.
+// Combina as duas abas de contato (ver comentário acima das constantes),
+// casando por nome. "Entregadores" (planilha oficial do D-1) entra primeiro
+// como fonte principal; "Pós-vendas" (planilha externa) só completa quem
+// não apareceu lá ou ficou com CPF/telefone vazio.
 function getPosVendasRows() {
-  var ss = SpreadsheetApp.openById(POS_VENDAS_SPREADSHEET_ID);
   var byName = {};
 
-  var aprovadosSheet = ss.getSheetByName(ENTREGADORES_SHEET_NAME);
+  var mainSs = SpreadsheetApp.getActiveSpreadsheet();
+  var aprovadosSheet = mainSs.getSheetByName(ENTREGADORES_SHEET_NAME);
   if (aprovadosSheet) {
     readEntregadoresAprovados(aprovadosSheet).forEach(function (r) {
       byName[normNomeParaMatch(r.pessoa_entregadora)] = r;
     });
   }
 
-  var posVendasSheet = ss.getSheetByName(POS_VENDAS_SHEET_NAME);
+  var contatosSs = SpreadsheetApp.openById(POS_VENDAS_SPREADSHEET_ID);
+  var posVendasSheet = contatosSs.getSheetByName(POS_VENDAS_SHEET_NAME);
   if (posVendasSheet) {
     readPosVendasSheet(posVendasSheet).forEach(function (r) {
       var key = normNomeParaMatch(r.pessoa_entregadora);
