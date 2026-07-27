@@ -30,49 +30,79 @@ function doGet(e) {
 
     var tab = (e.parameter.tab || 'D-1').trim();
 
+    // Uma chamada só pro carregamento inicial (D-1 + contatos), em vez de
+    // duas requisições HTTP separadas — o Apps Script demora bem mais numa
+    // planilha grande, e duas execuções concorrentes do mesmo script podem
+    // ficar na fila em vez de rodar em paralelo de verdade. Uma falha ao
+    // ler os contatos (ex: planilha externa fora do ar) não deve derrubar
+    // o D-1, por isso o try/catch isolado aqui dentro.
+    if (tab === 'Dashboard') {
+      var posVendas;
+      try {
+        posVendas = getPosVendasRows();
+      } catch (posErr) {
+        posVendas = [];
+      }
+      return jsonOutput({ d1: getSheetRows('D-1'), posVendas: posVendas });
+    }
+
     if (tab === 'PosVendas') {
       return jsonOutput(getPosVendasRows());
     }
 
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(tab);
-    if (!sheet) {
-      throw new Error('Aba não encontrada: ' + tab);
-    }
-
-    var values = sheet.getDataRange().getValues();
-    if (values.length < 2) {
-      return jsonOutput([]);
-    }
-
-    var headers = values[0].map(function (h) { return String(h).trim(); });
-    var tz = Session.getScriptTimeZone();
-    var escaladoIdx = headers.indexOf('tempo_disponivel_escalado');
-
-    var rows = [];
-    for (var i = 1; i < values.length; i++) {
-      var obj = {};
-      for (var j = 0; j < headers.length; j++) {
-        var h = headers[j];
-        var val = values[i][j];
-        if (j === escaladoIdx && isDateValue(val)) {
-          // O Sheets às vezes lê um percentual tipo "23.12" como se fosse uma
-          // data (dia 23, mês 12) na hora de colar, porque bate com um
-          // padrão dia.mês válido. Reconstrói o número original a partir do
-          // dia/mês da data corrompida, em vez de formatar como data.
-          val = val.getDate() + (val.getMonth() + 1) / 100;
-        } else if (isDateValue(val)) {
-          val = formatSheetDate(val, tz);
-        }
-        obj[h] = val;
-      }
-      rows.push(obj);
-    }
-
-    return jsonOutput(rows);
+    return jsonOutput(getSheetRows(tab));
   } catch (err) {
     return jsonOutput({ error: String(err) });
   }
+}
+
+// Colunas do D-1 que nunca são usadas pelo painel — omitidas da resposta só
+// pra reduzir o tamanho do payload (a planilha já passou de 14 mil linhas).
+var D1_SKIP_COLUMNS = { tag: true, praca: true, origem: true, soma_das_taxas_das_corridas_aceitas: true };
+// Únicas colunas do D-1 que já vieram como data corrompida na prática — só
+// essas passam pelo isDateValue, em vez de checar as 19 colunas de cada
+// linha (ganho real numa planilha com muitas linhas).
+var D1_DATE_LIKE_COLUMNS = { data_do_periodo: true, duracao_do_periodo: true, tempo_disponivel_absoluto: true };
+
+function getSheetRows(tab) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(tab);
+  if (!sheet) {
+    throw new Error('Aba não encontrada: ' + tab);
+  }
+
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) {
+    return [];
+  }
+
+  var headers = values[0].map(function (h) { return String(h).trim(); });
+  var tz = Session.getScriptTimeZone();
+  var escaladoIdx = headers.indexOf('tempo_disponivel_escalado');
+  var isD1 = tab === 'D-1';
+
+  var rows = [];
+  for (var i = 1; i < values.length; i++) {
+    var obj = {};
+    for (var j = 0; j < headers.length; j++) {
+      var h = headers[j];
+      if (isD1 && D1_SKIP_COLUMNS[h]) continue;
+      var val = values[i][j];
+      if (j === escaladoIdx && isDateValue(val)) {
+        // O Sheets às vezes lê um percentual tipo "23.12" como se fosse uma
+        // data (dia 23, mês 12) na hora de colar, porque bate com um
+        // padrão dia.mês válido. Reconstrói o número original a partir do
+        // dia/mês da data corrompida, em vez de formatar como data.
+        val = val.getDate() + (val.getMonth() + 1) / 100;
+      } else if ((!isD1 || D1_DATE_LIKE_COLUMNS[h]) && isDateValue(val)) {
+        val = formatSheetDate(val, tz);
+      }
+      obj[h] = val;
+    }
+    rows.push(obj);
+  }
+
+  return rows;
 }
 
 // Combina as duas abas de contato (ver comentário acima das constantes),

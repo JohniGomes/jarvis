@@ -391,15 +391,16 @@
   }
 
   function loadDashboard() {
-    // PosVendas é opcional (nome/telefone/CPF pra WhatsApp e exibição) — se a
-    // planilha externa não estiver acessível, não trava o carregamento, só
-    // fica sem esses dados.
-    var posVendasPromise = fetchTab(DEFAULT_APPS_SCRIPT_URL, 'PosVendas').catch(function () { return []; });
-    Promise.all([fetchTab(DEFAULT_APPS_SCRIPT_URL, 'D-1'), posVendasPromise])
-      .then(function (results) {
+    // Uma chamada só ao Apps Script (aba "Dashboard" = D-1 + contatos juntos)
+    // em vez de duas requisições separadas — evita duas execuções do script
+    // rodando (ou enfileiradas) ao mesmo tempo. Os contatos continuam
+    // opcionais: se a planilha externa de Pós-vendas falhar, o próprio
+    // Code.gs já devolve posVendas vazio em vez de derrubar o D-1.
+    fetchTab(DEFAULT_APPS_SCRIPT_URL, 'Dashboard')
+      .then(function (data) {
         loadingScreen.hidden = true;
         dashboardScreen.hidden = false;
-        initDashboard(results[0], results[1]);
+        initDashboard(data.d1 || [], data.posVendas || []);
       })
       .catch(function (err) {
         var msg = String(err.message || err);
