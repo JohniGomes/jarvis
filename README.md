@@ -1,7 +1,7 @@
-# Desempenho D-1 × Status D0 — EntreGÔ
+# Desempenho Histórico D-1 — EntreGÔ
 
-Painel que cruza o desempenho dos entregadores (aba **D-1** da planilha) com o
-status ao vivo da frota (aba **D0**), com filtro por turno.
+Painel com o desempenho histórico dos entregadores (aba **D-1** da planilha),
+com filtro por turno e período.
 
 A página (`index.html`) é 100% estática — os dados vêm de um Google Apps
 Script publicado como Web App, protegido por chave de acesso. Nenhum dado
@@ -9,7 +9,7 @@ fica gravado no repositório.
 
 ## 1. Publicar o Apps Script
 
-1. Abra a planilha (abas `D0` e `D-1`) → **Extensões → Apps Script**.
+1. Abra a planilha (aba `D-1`) → **Extensões → Apps Script**.
 2. Apague o conteúdo padrão e cole o código de [`apps-script/Code.gs`](apps-script/Code.gs).
 3. No topo do arquivo, troque `var ACCESS_KEY = 'TROQUE_AQUI';` por uma chave
    forte de verdade — é a "senha" do painel, só quem tiver essa chave
@@ -75,9 +75,3 @@ código pra simplificar).
 - **% Aceite**: corridas aceitas ÷ corridas ofertadas.
 - **% Online**: tempo disponível absoluto ÷ duração escalada dos turnos.
 - **Rotas**: corridas completadas.
-- **Status hoje (D0)**: Online se qualquer linha do entregador na aba D0 tiver
-  Conexão = Online; senão Offline; se o nome não aparecer no snapshot do D0,
-  mostra "Sem dado hoje".
-
-CPF é retornado pelo Apps Script e mostrado no painel — como o acesso exige
-chave, ele não fica exposto publicamente sem credencial.
