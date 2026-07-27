@@ -4,9 +4,15 @@
 // precisam ficar restritos.
 // ============================================================================
 
-// Planilha externa "Pós-vendas" com nome, telefone e CPF dos entregadores
-// aprovados (aba "Pós-vendas (Messias)"). Não é a mesma planilha do D-1.
+// Planilha externa com nome, telefone e CPF dos entregadores. Não é a mesma
+// planilha do D-1. Duas abas são combinadas (nome é a chave de match):
+//   - "Entregadores": lista completa dos aprovados (Nome/CPF/Telefone),
+//     bem mais abrangente — é a fonte principal.
+//   - "Pós-vendas (Messias)": contato manual de pós-venda, usada só como
+//     reforço pra quem não estiver na lista de aprovados ou tiver CPF/
+//     telefone em branco lá.
 var POS_VENDAS_SPREADSHEET_ID = '169jmX5N4m8icBi0MA0kiMyCF-J9irtXVUGkI7Q3ene0';
+var ENTREGADORES_SHEET_NAME = 'Entregadores';
 var POS_VENDAS_SHEET_NAME = 'Pós-vendas (Messias)';
 
 function doGet(e) {
@@ -68,16 +74,79 @@ function doGet(e) {
   }
 }
 
-// Lê nome (B), telefone (E), CPF (F), se já fizemos o primeiro contato (P) e
-// a observação (Q) da planilha externa de Pós-vendas. Usa índice de coluna
-// fixo em vez de nome de cabeçalho porque essa planilha não é nossa — o
-// cabeçalho é em linguagem natural, não snake_case combinado com o painel.
+// Combina as duas abas da planilha de contatos (ver comentário acima da
+// constante), casando por nome. "Entregadores" entra primeiro (fonte
+// principal); "Pós-vendas" só completa quem não apareceu lá ou ficou com
+// CPF/telefone vazio.
 function getPosVendasRows() {
   var ss = SpreadsheetApp.openById(POS_VENDAS_SPREADSHEET_ID);
-  var sheet = ss.getSheetByName(POS_VENDAS_SHEET_NAME);
-  if (!sheet) {
-    throw new Error('Aba não encontrada na planilha de Pós-vendas: ' + POS_VENDAS_SHEET_NAME);
+  var byName = {};
+
+  var aprovadosSheet = ss.getSheetByName(ENTREGADORES_SHEET_NAME);
+  if (aprovadosSheet) {
+    readEntregadoresAprovados(aprovadosSheet).forEach(function (r) {
+      byName[normNomeParaMatch(r.pessoa_entregadora)] = r;
+    });
   }
+
+  var posVendasSheet = ss.getSheetByName(POS_VENDAS_SHEET_NAME);
+  if (posVendasSheet) {
+    readPosVendasSheet(posVendasSheet).forEach(function (r) {
+      var key = normNomeParaMatch(r.pessoa_entregadora);
+      var existing = byName[key];
+      if (!existing) {
+        byName[key] = r;
+      } else {
+        if (!existing.cpf && r.cpf) existing.cpf = r.cpf;
+        if (!existing.telefone && r.telefone) existing.telefone = r.telefone;
+      }
+    });
+  }
+
+  return Object.keys(byName).map(function (k) { return byName[k]; });
+}
+
+function normNomeParaMatch(nome) {
+  return String(nome || '').trim().toUpperCase();
+}
+
+// CPF/telefone vêm como número na planilha (ex: 07346548558 perde o zero à
+// esquerda e vira 7346548558) — reconstrói como texto de 11 dígitos.
+function padDigits11(val) {
+  if (val === '' || val === null || val === undefined) return '';
+  var digits = String(val).replace(/\D/g, '');
+  if (!digits) return '';
+  while (digits.length < 11) digits = '0' + digits;
+  return digits;
+}
+
+// Lê a aba "Entregadores" (lista completa dos aprovados) pelo nome do
+// cabeçalho — essa planilha tem cabeçalho legível (Nome/CPF/Telefone), não
+// precisa ler por posição de coluna.
+function readEntregadoresAprovados(sheet) {
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+  var headers = values[0].map(function (h) { return String(h).trim(); });
+  var nomeIdx = headers.indexOf('Nome');
+  var cpfIdx = headers.indexOf('CPF');
+  var telIdx = headers.indexOf('Telefone');
+  var rows = [];
+  for (var i = 1; i < values.length; i++) {
+    var nome = values[i][nomeIdx];
+    if (!nome) continue;
+    rows.push({
+      pessoa_entregadora: String(nome).trim(),
+      cpf: cpfIdx === -1 ? '' : padDigits11(values[i][cpfIdx]),
+      telefone: telIdx === -1 ? '' : padDigits11(values[i][telIdx]),
+    });
+  }
+  return rows;
+}
+
+// Lê nome (B), telefone (E) e CPF (F) da aba de Pós-vendas. Usa índice de
+// coluna fixo em vez de nome de cabeçalho porque essa aba não é nossa — o
+// cabeçalho é em linguagem natural, não combinado com o painel.
+function readPosVendasSheet(sheet) {
   var values = sheet.getDataRange().getValues();
   var tz = Session.getScriptTimeZone();
   var rows = [];
@@ -87,14 +156,10 @@ function getPosVendasRows() {
     if (!nome) continue;
     var telefone = row[4]; // E
     var cpf = row[5]; // F
-    var contatoFeito = row[15]; // P
-    var observacao = row[16]; // Q
     rows.push({
       pessoa_entregadora: String(nome).trim(),
       telefone: isDateValue(telefone) ? formatSheetDate(telefone, tz) : telefone,
-      cpf: isDateValue(cpf) ? formatSheetDate(cpf, tz) : cpf,
-      contato_feito: contatoFeito,
-      observacao: observacao,
+      cpf: isDateValue(cpf) ? formatSheetDate(cpf, tz) : padDigits11(cpf),
     });
   }
   return rows;
