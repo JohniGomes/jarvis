@@ -1,36 +1,32 @@
 // ============================================================================
-// IMPORTANTE: troque o valor abaixo SÓ AQUI, direto no editor do Apps Script
-// (script.google.com) — NUNCA suba o valor real desse arquivo pro GitHub.
-// A cópia deste arquivo no repositório deve continuar com o placeholder
-// 'TROQUE_AQUI', senão a chave de acesso fica pública pra qualquer pessoa
-// que ver o repositório.
+// Este painel é aberto (sem chave de acesso) — qualquer pessoa com o link do
+// GitHub Pages consegue ver os dados. Não implantar isso pra dados que
+// precisam ficar restritos.
 // ============================================================================
-var ACCESS_KEY = 'TROQUE_AQUI';
+
+// Planilha externa "Pós-vendas" com nome, telefone e CPF dos entregadores
+// aprovados (aba "Pós-vendas (Messias)"). Não é a mesma planilha do D-1.
+var POS_VENDAS_SPREADSHEET_ID = '169jmX5N4m8icBi0MA0kiMyCF-J9irtXVUGkI7Q3ene0';
+var POS_VENDAS_SHEET_NAME = 'Pós-vendas (Messias)';
 
 function doGet(e) {
   try {
-    var providedKey = e.parameter.key || '';
-    if (ACCESS_KEY === 'TROQUE_AQUI') {
-      throw new Error(
-        'ACCESS_KEY ainda não foi definida. Edite a constante ACCESS_KEY no topo ' +
-        'deste arquivo, direto no editor do Apps Script (script.google.com).'
-      );
-    }
-    if (providedKey !== ACCESS_KEY) {
-      return jsonOutput({ error: 'unauthorized' });
-    }
-
     // Resumo com IA (aba Análise) — usa GET (não POST) porque o Content
     // Service do Apps Script não devolve cabeçalhos CORS em respostas de
     // POST, então o navegador bloqueia a leitura mesmo com a chamada indo
     // certinho. GET com os dados no querystring evita esse problema (é o
-    // mesmo caminho que já funciona pras abas D0/D-1).
+    // mesmo caminho que já funciona pra aba D-1).
     if (e.parameter.action === 'analyze') {
       var data = JSON.parse(e.parameter.data || '{}');
       return jsonOutput({ text: generateAnalysisSummary(data) });
     }
 
-    var tab = (e.parameter.tab || 'D0').trim();
+    var tab = (e.parameter.tab || 'D-1').trim();
+
+    if (tab === 'PosVendas') {
+      return jsonOutput(getPosVendasRows());
+    }
+
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName(tab);
     if (!sheet) {
@@ -70,6 +66,38 @@ function doGet(e) {
   } catch (err) {
     return jsonOutput({ error: String(err) });
   }
+}
+
+// Lê nome (B), telefone (E), CPF (F), se já fizemos o primeiro contato (P) e
+// a observação (Q) da planilha externa de Pós-vendas. Usa índice de coluna
+// fixo em vez de nome de cabeçalho porque essa planilha não é nossa — o
+// cabeçalho é em linguagem natural, não snake_case combinado com o painel.
+function getPosVendasRows() {
+  var ss = SpreadsheetApp.openById(POS_VENDAS_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(POS_VENDAS_SHEET_NAME);
+  if (!sheet) {
+    throw new Error('Aba não encontrada na planilha de Pós-vendas: ' + POS_VENDAS_SHEET_NAME);
+  }
+  var values = sheet.getDataRange().getValues();
+  var tz = Session.getScriptTimeZone();
+  var rows = [];
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    var nome = row[1]; // B
+    if (!nome) continue;
+    var telefone = row[4]; // E
+    var cpf = row[5]; // F
+    var contatoFeito = row[15]; // P
+    var observacao = row[16]; // Q
+    rows.push({
+      pessoa_entregadora: String(nome).trim(),
+      telefone: isDateValue(telefone) ? formatSheetDate(telefone, tz) : telefone,
+      cpf: isDateValue(cpf) ? formatSheetDate(cpf, tz) : cpf,
+      contato_feito: contatoFeito,
+      observacao: observacao,
+    });
+  }
+  return rows;
 }
 
 // O SpreadsheetApp às vezes devolve Date criado em outro "contexto" do V8,
