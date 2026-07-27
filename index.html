@@ -288,6 +288,12 @@
         <div id="turnoChart" style="margin-top: 10px;"></div>
       </div>
 
+      <div class="sim-card">
+        <div class="sim-card__title">Ader&ecirc;ncia di&aacute;ria</div>
+        <div class="sim-card__hint">Evolu&ccedil;&atilde;o da Ader&ecirc;ncia dia a dia no per&iacute;odo selecionado. Acima de 14 dias, role o gr&aacute;fico na horizontal.</div>
+        <div id="diaChart" style="margin-top: 10px;"></div>
+      </div>
+
       <div class="ai-card">
         <div class="ai-card__row">
           <div class="sim-card__title">Resumo com IA</div>
@@ -574,6 +580,40 @@
     });
   }
 
+  // Aderência agrupada por dia, somando todas as subpraças e turnos do
+  // período selecionado — mesma lógica de agrupamento (subpraça+turno+dia)
+  // pra não subcontar vaga esperada, só que o resultado é quebrado por dia
+  // em vez de por turno. Ordenado cronologicamente (não alfabético).
+  function computeAderenciaPorDia(rows) {
+    var subGroups = {};
+    var realizadoPorDia = {};
+    rows.forEach(function (r) {
+      var subKey = subpracaKey(r) + '|' + r.periodo + '|' + r.data_do_periodo;
+      if (!subGroups[subKey]) {
+        subGroups[subKey] = {
+          dia: r.data_do_periodo,
+          vagas: Number(r.numero_minimo_de_entregadores_regulares_na_escala) || 0,
+          dur: toSeconds(r.duracao_do_periodo),
+        };
+      }
+      realizadoPorDia[r.data_do_periodo] = (realizadoPorDia[r.data_do_periodo] || 0) + toSeconds(r.tempo_disponivel_absoluto);
+    });
+    var esperadoPorDia = {};
+    Object.keys(subGroups).forEach(function (k) {
+      var g = subGroups[k];
+      esperadoPorDia[g.dia] = (esperadoPorDia[g.dia] || 0) + g.vagas * g.dur;
+    });
+    var dias = Object.keys(esperadoPorDia).sort(function (a, b) {
+      var da = parseDateBR(a), db = parseDateBR(b);
+      return (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
+    });
+    return dias.map(function (d) {
+      var esperado = esperadoPorDia[d] || 0;
+      var realizado = realizadoPorDia[d] || 0;
+      return { dia: d, pct: esperado ? Math.round((100 * realizado / esperado) * 100) / 100 : 0 };
+    });
+  }
+
   var PERIODO_SHORT = {
     'MADRUGADA 00H00-00H59': 'Madrugada',
     'M8 MANHA 06H00-07H59': 'M8 Manhã',
@@ -584,7 +624,11 @@
     'JANTAR 21H30-23H59': 'Jantar',
   };
 
-  // Gráfico de linha simples em SVG puro (sem biblioteca externa).
+  // Gráfico de linha simples em SVG puro (sem biblioteca externa). Se
+  // opts.scrollLimit for passado e data.length ultrapassar esse limite, o
+  // gráfico vira largura fixa (opts.perPointWidth por ponto) dentro de um
+  // contêiner com rolagem horizontal, em vez de espremer tudo no espaço
+  // disponível.
   function renderLineChart(containerId, data, opts) {
     opts = opts || {};
     var container = document.getElementById(containerId);
@@ -592,7 +636,10 @@
       container.innerHTML = '<span class="empty-hint">Sem dados suficientes no período pra montar o gráfico.</span>';
       return;
     }
-    var w = 640, h = 220, padL = 38, padR = 16, padT = 20, padB = 36;
+    var h = 220, padL = 38, padR = 16, padT = 20, padB = 36;
+    var perPointWidth = opts.perPointWidth || 46;
+    var scrollable = !!opts.scrollLimit && data.length > opts.scrollLimit;
+    var w = scrollable ? Math.max(640, padL + padR + (data.length - 1) * perPointWidth) : 640;
     var maxVal = Math.max.apply(null, data.map(function (d) { return d.pct; }));
     var yMax = Math.max(10, Math.ceil((maxVal * 1.2) / 5) * 5);
     var stepX = data.length > 1 ? (w - padL - padR) / (data.length - 1) : 0;
@@ -619,11 +666,16 @@
       return '<text x="' + xAt(i) + '" y="' + (h - padB + 16) + '" font-size="9.5" fill="var(--text-muted)" text-anchor="middle">' + lbl + '</text>';
     }).join('');
 
-    container.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%; height:auto; display:block;">' +
+    var svgStyle = scrollable
+      ? ('width:' + w + 'px; height:' + h + 'px; display:block;')
+      : 'width:100%; height:auto; display:block;';
+    var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="' + svgStyle + '">' +
       gridLines +
       '<polyline points="' + points + '" fill="none" stroke="var(--accent)" stroke-width="2"></polyline>' +
       circles + labels +
       '</svg>';
+
+    container.innerHTML = scrollable ? ('<div style="overflow-x:auto;">' + svg + '</div>') : svg;
   }
 
   // Tempo online (KPI de topo) = tempo online realizado ÷ duração escalada,
@@ -938,6 +990,16 @@
     var turnoData = computeAderenciaPorTurno(d1Rows);
     renderLineChart('turnoChart', turnoData, {
       labelFor: function (d) { return PERIODO_SHORT[String(d.periodo).toUpperCase()] || d.periodo; },
+    });
+
+    var diaData = computeAderenciaPorDia(d1Rows);
+    renderLineChart('diaChart', diaData, {
+      scrollLimit: 14,
+      perPointWidth: 46,
+      labelFor: function (d) {
+        var m = String(d.dia).match(/(\d{1,2})\/(\d{1,2})/);
+        return m ? (m[1] + '/' + m[2]) : d.dia;
+      },
     });
 
     var esperadoSec = aderenciaDetail.esperadoSec;
