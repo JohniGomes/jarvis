@@ -28,6 +28,15 @@ function doGet(e) {
       return jsonOutput({ text: generateAnalysisSummary(data) });
     }
 
+    // Página "Meu Desempenho" (link separado pros próprios entregadores).
+    // Filtra pelo CPF AQUI no servidor, não no navegador: a resposta já sai
+    // só com as linhas da pessoa encontrada, então o navegador dela nunca
+    // chega a baixar os dados de mais ninguém (diferente do painel principal,
+    // que existe pra quem já vê tudo).
+    if (e.parameter.action === 'meuDesempenho') {
+      return jsonOutput(getMeuDesempenho(e.parameter.cpf || ''));
+    }
+
     var tab = (e.parameter.tab || 'D-1').trim();
 
     // Uma chamada só pro carregamento inicial (D-1 + contatos), em vez de
@@ -103,6 +112,46 @@ function getSheetRows(tab) {
   }
 
   return rows;
+}
+
+// Acha a pessoa pelo CPF (nas abas de contato) e devolve só as linhas do D-1
+// dela — nunca o restante da base. Agrupa por id_da_pessoa_entregadora antes
+// de comparar nomes pelo mesmo motivo do aggregateD1 no front-end: uma mesma
+// pessoa pode ter o nome corrompido (mojibake) só nalgumas linhas, então
+// filtrar comparando string de nome direto perderia parte do histórico dela.
+function getMeuDesempenho(cpfRaw) {
+  var cpf = padDigits11(cpfRaw);
+  if (!cpf) return { error: 'Informe um CPF válido.' };
+
+  var roster = getPosVendasRows();
+  var rosterEntry = null;
+  for (var i = 0; i < roster.length; i++) {
+    if (roster[i].cpf === cpf) { rosterEntry = roster[i]; break; }
+  }
+  if (!rosterEntry) return { error: 'CPF não encontrado. Confira os números e tente de novo.' };
+
+  var targetKey = normNomeParaMatch(rosterEntry.pessoa_entregadora);
+
+  var byId = {};
+  getSheetRows('D-1').forEach(function (r) {
+    var id = r.id_da_pessoa_entregadora || normNomeParaMatch(r.pessoa_entregadora);
+    if (!byId[id]) byId[id] = [];
+    byId[id].push(r);
+  });
+
+  var matchedRows = [];
+  var matchedName = rosterEntry.pessoa_entregadora;
+  Object.keys(byId).forEach(function (id) {
+    var group = byId[id];
+    var hasMatch = group.some(function (r) { return normNomeParaMatch(r.pessoa_entregadora) === targetKey; });
+    if (!hasMatch) return;
+    matchedRows = matchedRows.concat(group);
+    var clean = group.map(function (r) { return r.pessoa_entregadora; })
+      .find(function (n) { return String(n).indexOf('Ã') === -1; });
+    if (clean) matchedName = clean;
+  });
+
+  return { nome: matchedName, rows: matchedRows };
 }
 
 // Combina as duas abas de contato (ver comentário acima das constantes),
