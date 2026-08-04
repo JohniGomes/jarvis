@@ -7,3 +7,5 @@ robots/bundle_download.zip
 robots/bundle_teste.zip
 __pycache__/
 *.pyc
+.venv/
+logs/

@@ -170,29 +170,6 @@ manda só o **CPF** pro servidor (`action=sendChatwoot&cpf=...`); o Apps
 Script busca telefone e nome direto na aba "Sem Corridas" e só envia se
 achar o CPF lá — nunca aceita telefone/nome vindo do navegador.
 
-## Página "Meu Desempenho" (pra compartilhar com os entregadores)
-
-[`meu-desempenho.html`](meu-desempenho.html) é uma página separada, pensada
-pra mandar pros próprios entregadores (WhatsApp, grupo, etc.):
-`https://johnigomes.github.io/jarvis/meu-desempenho.html`.
-
-O entregador digita o CPF dele e vê **só os números dele** (turnos, pedidos,
-% aceite, tempo online, por turno) — sem acesso ao painel principal, às
-outras abas ou aos KPIs gerais da região.
-
-Isso é filtrado **no Apps Script, não no navegador**: a ação
-`action=meuDesempenho&cpf=...` (em `Code.gs`, função `getMeuDesempenho`)
-acha a pessoa pelo CPF nas abas de contato e devolve só as linhas do D-1
-dela. O navegador do entregador nunca chega a baixar os dados de mais
-ninguém — diferente do painel principal (`index.html`), que carrega a base
-inteira pra quem já tem acesso a tudo. Usar o CPF como identificador é
-consistente com a decisão já tomada de deixar o painel principal aberto e
-mostrar o CPF publicamente ali: não há um segredo novo sendo exposto.
-
-Se o entregador confirmar o CPF, ele fica salvo no navegador dele (só no
-próprio aparelho, via `localStorage`) pra não precisar digitar de novo da
-próxima vez — dá pra trocar clicando em "trocar CPF".
-
 ## Como os números são calculados
 
 - **Turnos**: quantidade de linhas (períodos) do entregador no D-1, no filtro
