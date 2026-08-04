@@ -98,6 +98,45 @@ que se ajusta.
 Em ambas, "entregas" = `numero_de_pedidos_aceitos_e_concluidos` (coluna
 `Pedidos`), não `Rotas` (corridas completadas).
 
+## Aba "Sem Corridas" (envio via Chatwoot pra aprovados que não rodaram)
+
+A aba **Sem Corridas** do painel principal lista entregadores aprovados que
+ainda não fizeram nenhuma corrida, com um botão que manda uma mensagem de
+WhatsApp Business **de verdade** (via Chatwoot) na hora do clique.
+
+### De onde vem a lista
+
+O sistema `sistema.entregoaguasclaras.com.br/approved-follow-up` (tela
+"Acompanhamento Aprovados") não tem API — a lista é coletada manualmente
+(hoje: pedindo pro Claude acessar o sistema, com você logado no painel do
+navegador, e colar o resultado). Cole os dados numa aba chamada **exatamente**
+`Sem Corridas` na planilha oficial do D-1, com as colunas `Nome`, `Telefone`
+(dígitos com 55 na frente, ex: `5511999998888`), `CPF` (11 dígitos) e
+`Aprovado_em`. Peça pra recoletar sempre que quiser atualizar — não é
+automático.
+
+### Configurar o Chatwoot
+
+1. No editor do Apps Script, **Configurações do projeto → Propriedades do
+   script → Adicionar propriedade do script**: nome `CHATWOOT_TOKEN`, valor o
+   token de acesso do Chatwoot (Perfil → Token de acesso). Nunca cole esse
+   token em nenhum arquivo do repositório.
+2. Conta, inbox e template do WhatsApp Business estão fixos no topo da seção
+   Chatwoot do `Code.gs` (`CHATWOOT_ACCOUNT_ID`, `CHATWOOT_INBOX_ID`,
+   `CHATWOOT_TEMPLATE_NAME` = `aprovado_com_promo`) — ajuste lá se a conta,
+   a inbox ou o template mudarem. Como é WhatsApp Business API, o primeiro
+   contato com quem nunca conversou antes **precisa** ser por um template
+   já aprovado pela Meta (não dá pra mandar texto livre).
+
+### Segurança: por que o envio valida pelo CPF
+
+O painel é público (sem senha) — sem alguma proteção, qualquer pessoa
+poderia montar a URL do Apps Script na mão e mandar mensagem de WhatsApp
+Business pra qualquer número, usando a conta da empresa. Por isso o botão
+manda só o **CPF** pro servidor (`action=sendChatwoot&cpf=...`); o Apps
+Script busca telefone e nome direto na aba "Sem Corridas" e só envia se
+achar o CPF lá — nunca aceita telefone/nome vindo do navegador.
+
 ## Página "Meu Desempenho" (pra compartilhar com os entregadores)
 
 [`meu-desempenho.html`](meu-desempenho.html) é uma página separada, pensada

@@ -174,6 +174,8 @@
   .chip { font-size: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; }
   .wa-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: #fff; background: #25D366; border-radius: 50%; text-decoration: none; flex: none; }
   .wa-btn:hover { filter: brightness(1.05); }
+  .send-chatwoot-btn { font-family: inherit; font-size: 11.5px; font-weight: 600; color: #fff; background: #25D366; border: none; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  .send-chatwoot-btn:disabled { opacity: 0.6; cursor: default; }
 
   footer.pagefoot { margin-top: 18px; font-size: 12px; color: var(--text-faint); text-align: center; }
 
@@ -210,6 +212,7 @@
     <button type="button" class="tab-btn" data-view="analise">An&aacute;lise</button>
     <button type="button" class="tab-btn" data-view="meta">Meta</button>
     <button type="button" class="tab-btn" data-view="campanhas">Campanhas</button>
+    <button type="button" class="tab-btn" data-view="semCorridas">Sem Corridas</button>
   </div>
 
   <section class="panel" id="viewDesempenho">
@@ -392,6 +395,22 @@
     </div>
   </section>
 
+  <section class="panel" id="viewSemCorridas" hidden>
+    <div class="panel__bar">
+      <span class="panel__title">Aprovados sem corridas</span>
+      <span class="count-badge" id="semCorridasCount">0</span>
+    </div>
+    <div class="analise-body">
+      <p class="analise-col__hint">Lista coletada manualmente do sistema de Acompanhamento Aprovados (n&atilde;o atualiza sozinha &mdash; pe&ccedil;a pra recoletar quando precisar). O bot&atilde;o envia direto pelo WhatsApp Business (Chatwoot), template "aprovado_com_promo".</p>
+      <div class="table-scroll">
+        <table class="mini-table">
+          <thead><tr><th>Entregador</th><th>Pra&ccedil;a</th><th>Aprovado em</th><th>A&ccedil;&atilde;o</th></tr></thead>
+          <tbody id="semCorridasBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <details class="note">
     <summary><span>Como os n&uacute;meros s&atilde;o calculados &middot; limita&ccedil;&otilde;es do cruzamento</span></summary>
     <div class="note__body">
@@ -440,7 +459,7 @@
       .then(function (data) {
         loadingScreen.hidden = true;
         dashboardScreen.hidden = false;
-        initDashboard(data.d1 || [], data.posVendas || []);
+        initDashboard(data.d1 || [], data.posVendas || [], data.semCorridas || []);
       })
       .catch(function (err) {
         var msg = String(err.message || err);
@@ -1477,6 +1496,57 @@
     renderWeeklyBonus();
   }
 
+  // ================= Sem Corridas (envio via Chatwoot) =================
+  // Lista coletada manualmente do sistema de Acompanhamento Aprovados (não
+  // tem API) e colada na aba "Sem Corridas" da planilha. O envio real
+  // acontece no Apps Script (action=sendChatwoot&cpf=...), que valida o CPF
+  // contra essa mesma aba antes de mandar qualquer coisa — o navegador nunca
+  // manda telefone/nome direto, só o CPF.
+  function renderSemCorridas(rows) {
+    document.getElementById('semCorridasCount').textContent = rows.length;
+    var body = document.getElementById('semCorridasBody');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="4" class="empty-hint">Nenhum registro na aba "Sem Corridas" ainda.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(function (r) {
+      var cpfDigits = String(r.CPF || '').replace(/\D/g, '');
+      while (cpfDigits.length < 11) cpfDigits = '0' + cpfDigits;
+      return '<tr>' +
+        '<td>' + (r.Nome || '') + '</td>' +
+        '<td>' + (r.Praca || '') + '</td>' +
+        '<td>' + (r.Aprovado_em || '') + '</td>' +
+        '<td><button type="button" class="send-chatwoot-btn" data-cpf="' + cpfDigits + '">Enviar</button></td>' +
+        '</tr>';
+    }).join('');
+    body.querySelectorAll('.send-chatwoot-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { sendChatwootMessage(btn); });
+    });
+  }
+
+  function sendChatwootMessage(btn) {
+    var cpf = btn.getAttribute('data-cpf');
+    btn.disabled = true;
+    btn.textContent = 'Enviando…';
+    var sep = DEFAULT_APPS_SCRIPT_URL.indexOf('?') === -1 ? '?' : '&';
+    fetch(DEFAULT_APPS_SCRIPT_URL + sep + 'action=sendChatwoot&cpf=' + encodeURIComponent(cpf))
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res && res.error) {
+          btn.disabled = false;
+          btn.textContent = 'Enviar';
+          alert('Erro ao enviar: ' + res.error);
+          return;
+        }
+        btn.textContent = 'Enviado ✅';
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = 'Enviar';
+        alert('Erro ao enviar: ' + err.message);
+      });
+  }
+
   function renderTable() {
     var q = document.getElementById('searchInput').value.trim().toLowerCase();
     var rows = merged.filter(function (p) { return p.d1; });
@@ -1579,9 +1649,10 @@
       : 'Sem dados ' + comparePeriodoContraido + ' (' + formatDateBR(prevFrom) + ' – ' + formatDateBR(prevTo) + ') para comparar.';
   }
 
-  function initDashboard(d1Rows, posVendasRows) {
+  function initDashboard(d1Rows, posVendasRows, semCorridasRows) {
     RAW_D1 = d1Rows;
     POS_VENDAS_BY_NAME = buildPosVendasIndex(posVendasRows);
+    renderSemCorridas(semCorridasRows || []);
 
     var periodos = sortPeriodos(Array.from(new Set(d1Rows.map(function (r) { return r.periodo; }).filter(Boolean))));
     var turnoSelect = document.getElementById('turnoFilter');
@@ -1637,6 +1708,7 @@
         document.getElementById('viewAnalise').hidden = view !== 'analise';
         document.getElementById('viewMeta').hidden = view !== 'meta';
         document.getElementById('viewCampanhas').hidden = view !== 'campanhas';
+        document.getElementById('viewSemCorridas').hidden = view !== 'semCorridas';
       });
     });
     document.getElementById('simRange').addEventListener('input', renderSimulator);

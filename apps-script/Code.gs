@@ -37,6 +37,17 @@ function doGet(e) {
       return jsonOutput(getMeuDesempenho(e.parameter.cpf || ''));
     }
 
+    // Envio de mensagem pelo Chatwoot (aba Sem Corridas). O navegador manda
+    // só o CPF — o telefone e o nome são lidos aqui no servidor, direto da
+    // aba "Sem Corridas". Isso existe porque o painel é público (sem senha):
+    // sem essa validação, qualquer pessoa poderia montar essa URL na mão e
+    // mandar mensagem de WhatsApp Business pra qualquer número que quisesse,
+    // usando a conta da empresa. Validando contra a aba, só quem já está de
+    // verdade na lista pode receber.
+    if (e.parameter.action === 'sendChatwoot') {
+      return jsonOutput(sendChatwootParaSemCorridas(e.parameter.cpf || ''));
+    }
+
     var tab = (e.parameter.tab || 'D-1').trim();
 
     // Uma chamada só pro carregamento inicial (D-1 + contatos), em vez de
@@ -52,7 +63,13 @@ function doGet(e) {
       } catch (posErr) {
         posVendas = [];
       }
-      return jsonOutput({ d1: getSheetRows('D-1'), posVendas: posVendas });
+      var semCorridas;
+      try {
+        semCorridas = getSheetRows(SEM_CORRIDAS_SHEET_NAME);
+      } catch (semErr) {
+        semCorridas = [];
+      }
+      return jsonOutput({ d1: getSheetRows('D-1'), posVendas: posVendas, semCorridas: semCorridas });
     }
 
     if (tab === 'PosVendas') {
@@ -152,6 +169,129 @@ function getMeuDesempenho(cpfRaw) {
   });
 
   return { nome: matchedName, rows: matchedRows };
+}
+
+// ============================================================================
+// Envio de mensagem via Chatwoot (WhatsApp Business API) — aba "Sem Corridas".
+// A conta, inbox e template são fixos abaixo (não são segredo). O token de
+// acesso do Chatwoot NUNCA vai aqui no código — fica só em "Propriedades do
+// script" (mesmo esquema da CLAUDE_API_KEY), com o nome CHATWOOT_TOKEN.
+// ============================================================================
+var CHATWOOT_BASE_URL = 'https://chatwoot.rayo-ia.com.br';
+var CHATWOOT_ACCOUNT_ID = 2;
+var CHATWOOT_INBOX_ID = 22;
+var CHATWOOT_TEMPLATE_NAME = 'aprovado_com_promo';
+var CHATWOOT_TEMPLATE_CATEGORY = 'MARKETING';
+var CHATWOOT_TEMPLATE_LANGUAGE = 'pt_BR';
+var SEM_CORRIDAS_SHEET_NAME = 'Sem Corridas';
+
+function sendChatwootParaSemCorridas(cpfRaw) {
+  var cpf = padDigits11(cpfRaw);
+  if (!cpf) return { error: 'Informe um CPF válido.' };
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SEM_CORRIDAS_SHEET_NAME);
+  if (!sheet) return { error: 'Aba "' + SEM_CORRIDAS_SHEET_NAME + '" não encontrada.' };
+
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0].map(function (h) { return String(h).trim(); });
+  var nomeIdx = headers.indexOf('Nome');
+  var telIdx = headers.indexOf('Telefone');
+  var cpfIdx = headers.indexOf('CPF');
+  if (nomeIdx === -1 || telIdx === -1 || cpfIdx === -1) {
+    return { error: 'A aba "' + SEM_CORRIDAS_SHEET_NAME + '" precisa ter as colunas Nome, Telefone e CPF.' };
+  }
+
+  var pessoa = null;
+  for (var i = 1; i < values.length; i++) {
+    if (padDigits11(values[i][cpfIdx]) === cpf) {
+      pessoa = { nome: String(values[i][nomeIdx]).trim(), telefone: String(values[i][telIdx]).replace(/\D/g, '') };
+      break;
+    }
+  }
+  if (!pessoa) return { error: 'CPF não encontrado na aba "' + SEM_CORRIDAS_SHEET_NAME + '".' };
+  if (!pessoa.telefone) return { error: 'Telefone em branco pra esse CPF na aba "' + SEM_CORRIDAS_SHEET_NAME + '".' };
+
+  try {
+    return sendChatwootTemplate(pessoa.telefone, pessoa.nome);
+  } catch (err) {
+    return { error: String(err) };
+  }
+}
+
+function sendChatwootTemplate(telefoneDigits, nomeCompleto) {
+  var token = PropertiesService.getScriptProperties().getProperty('CHATWOOT_TOKEN');
+  if (!token) {
+    throw new Error(
+      'CHATWOOT_TOKEN não configurada. No editor do Apps Script, vá em Configurações do projeto ' +
+      '(ícone de engrenagem) > Propriedades do script > Adicionar propriedade do script, com nome ' +
+      'CHATWOOT_TOKEN e o valor do token de acesso do Chatwoot (Perfil > Token de acesso).'
+    );
+  }
+
+  var headers = { api_access_token: token, 'Content-Type': 'application/json' };
+  var base = CHATWOOT_BASE_URL + '/api/v1/accounts/' + CHATWOOT_ACCOUNT_ID;
+
+  var contactId = findChatwootContactId(telefoneDigits, headers, base);
+  if (!contactId) {
+    contactId = createChatwootContact(telefoneDigits, nomeCompleto, headers, base);
+  }
+
+  var primeiroNome = (nomeCompleto || '').trim().split(/\s+/)[0] || nomeCompleto;
+  var payload = {
+    inbox_id: CHATWOOT_INBOX_ID,
+    contact_id: contactId,
+    message: {
+      template_params: {
+        name: CHATWOOT_TEMPLATE_NAME,
+        category: CHATWOOT_TEMPLATE_CATEGORY,
+        language: CHATWOOT_TEMPLATE_LANGUAGE,
+        processed_params: { '1': primeiroNome },
+      },
+    },
+  };
+
+  var response = UrlFetchApp.fetch(base + '/conversations', {
+    method: 'post',
+    headers: headers,
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true,
+  });
+
+  var status = response.getResponseCode();
+  if (status < 200 || status >= 300) {
+    throw new Error('Chatwoot respondeu ' + status + ': ' + response.getContentText());
+  }
+  var json = JSON.parse(response.getContentText());
+  return { ok: true, conversationId: json.id };
+}
+
+function findChatwootContactId(telefoneDigits, headers, base) {
+  var response = UrlFetchApp.fetch(base + '/contacts/search?q=' + encodeURIComponent(telefoneDigits), {
+    method: 'get',
+    headers: headers,
+    muteHttpExceptions: true,
+  });
+  if (response.getResponseCode() !== 200) return null;
+  var json = JSON.parse(response.getContentText());
+  var found = json.payload && json.payload[0];
+  return found ? found.id : null;
+}
+
+function createChatwootContact(telefoneDigits, nomeCompleto, headers, base) {
+  var response = UrlFetchApp.fetch(base + '/contacts', {
+    method: 'post',
+    headers: headers,
+    contentType: 'application/json',
+    payload: JSON.stringify({ inbox_id: CHATWOOT_INBOX_ID, name: nomeCompleto, phone_number: '+' + telefoneDigits }),
+    muteHttpExceptions: true,
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error('Chatwoot (criar contato) respondeu ' + response.getResponseCode() + ': ' + response.getContentText());
+  }
+  var json = JSON.parse(response.getContentText());
+  return json.payload.contact.id;
 }
 
 // Combina as duas abas de contato (ver comentário acima das constantes),
