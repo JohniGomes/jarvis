@@ -11,7 +11,10 @@ import sys
 from datetime import date, timedelta
 
 import requests
+from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
+
+load_dotenv()
 
 BASE_URL = "https://sistema.entregoaguasclaras.com.br"
 JANELA_DIAS = 15
@@ -111,8 +114,11 @@ def upsert_supabase(linhas):
     # coleta (delete-all + insert), não só um merge por CPF -- senão quem
     # sai da lista (voltou a ter corrida, ou saiu da janela de dias) ficaria
     # com um registro velho pra sempre.
-    url = os.environ["SUPABASE_URL"]
-    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    # .strip() -- segredos colados em GitHub Actions Secrets às vezes
+    # carregam uma quebra de linha/espaço a mais, o que vira um
+    # InvalidHeader na hora de montar o Authorization.
+    url = os.environ["SUPABASE_URL"].strip()
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"].strip()
     headers = {
         "apikey": key,
         "Authorization": f"Bearer {key}",

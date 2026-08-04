@@ -11,9 +11,15 @@ import zipfile
 from datetime import date, timedelta
 
 import requests
+from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 
 from robots.franqueado_login import login
+
+# No GitHub Actions as variáveis já vêm como Secrets reais -- load_dotenv()
+# não encontra ".env" lá e simplesmente não faz nada. Rodando local (tarefa
+# agendada), lê o ".env" na raiz do repo.
+load_dotenv()
 
 RELATORIO_TIPO = "Performance"
 
@@ -119,8 +125,11 @@ def upsert_supabase(linhas):
     if not linhas:
         log("Nenhuma linha no relatório -- nada pra enviar.")
         return
-    url = os.environ["SUPABASE_URL"]
-    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    # .strip() -- segredos colados em GitHub Actions Secrets às vezes
+    # carregam uma quebra de linha/espaço a mais, o que vira um
+    # InvalidHeader na hora de montar o Authorization.
+    url = os.environ["SUPABASE_URL"].strip()
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"].strip()
     headers = {
         "apikey": key,
         "Authorization": f"Bearer {key}",
