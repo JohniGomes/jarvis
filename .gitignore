@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+node_modules/
+robots/debug_*.png
+robots/bundle_download.zip
+robots/bundle_teste.zip
+__pycache__/
+*.pyc

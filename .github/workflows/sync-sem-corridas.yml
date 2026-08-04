@@ -1,0 +1,38 @@
+name: Sync Sem Corridas
+
+on:
+  schedule:
+    # 06:00 America/Sao_Paulo (UTC-3) = 09:00 UTC
+    - cron: '0 9 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependências
+        run: |
+          pip install -r robots/requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Coletar Sem Corridas e gravar no Supabase
+        env:
+          SISTEMA_EMAIL: ${{ secrets.SISTEMA_EMAIL }}
+          SISTEMA_PASSWORD: ${{ secrets.SISTEMA_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python robots/sem_corridas.py
+
+      - name: Salvar screenshot de erro (se falhar)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-sem-corridas
+          path: robots/debug_sem_corridas.png
+          if-no-files-found: ignore
