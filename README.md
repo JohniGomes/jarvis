@@ -40,8 +40,13 @@ Nome, CPF e telefone vêm de duas abas combinadas por nome
 (`getPosVendasRows` no `Code.gs`):
 
 - **`Entregadores`**: lista completa dos aprovados, colunas `Nome` / `CPF` /
-  `Telefone` (cabeçalho lido pelo nome, não por posição) — fonte principal.
-  Fica na **mesma planilha oficial do D-1**.
+  `Telefone` / `Data de Aprovação` (cabeçalho lido pelo nome, não por
+  posição — a coluna precisa se chamar **exatamente** `Data de Aprovação`,
+  com acento e "ç", senão a aba Campanhas não encontra ela). Fonte
+  principal. Fica na **mesma planilha oficial do D-1**. A coluna `Data de
+  Aprovação` é opcional (o resto do painel funciona sem ela) e só é usada
+  pela campanha "Start EntreGô" na aba Campanhas — preencha como data de
+  verdade (não texto) pra ficar seguro.
 - **`Pós-vendas (Messias)`**: contato manual de pós-venda (colunas fixas
   `B`=nome, `E`=telefone, `F`=CPF), numa **planilha externa separada** — usada
   só pra completar quem não está na lista de aprovados ou ficou com
@@ -68,6 +73,30 @@ do topo do `<script>`), cole a URL `.../exec` do passo 1.
 ## 3. Usar o painel
 
 Abra a URL do GitHub Pages — os dados carregam direto, sem login.
+
+## Aba "Campanhas" (quem são os ganhadores dos bônus promocionais)
+
+A aba **Campanhas** do painel principal mostra quem bate os critérios das
+duas campanhas de agosto/2026 (Start EntreGô e R$100 por semana). As datas e
+regras estão fixas no `index.html` (constantes `CAMP_*`, logo antes de
+`renderTable`) — se surgir uma campanha nova ou os critérios mudarem, é lá
+que se ajusta.
+
+- **Start EntreGô (R$200)**: cadastro aprovado entre 03/08 e 31/08, com 50
+  entregas (coluna `Pedidos`) completadas em até 7 dias corridos após a
+  **Data de Aprovação** (aba Entregadores — ver seção acima). Quem tem turno
+  no D-1 a partir de 03/08 mas **não tem** essa data preenchida aparece num
+  aviso separado, pra você saber quem falta cadastrar.
+- **R$100 por semana**: semanas corridas de 7 dias a partir de 03/08
+  (03–09/08, 10–16/08, 17–23/08, 24–30/08, 31/08 avulso). R$50 pros 30
+  primeiros a completarem 40 entregas na semana com taxa de aceite ≥70%
+  (ordem de quem bateu 40 primeiro, por data+turno) — dentro desses 30,
+  +R$50 extra pra quem também ficou com Tempo Online ≥75% na semana (R$100
+  no total). Um seletor deixa trocar de semana pra ver o ranking de cada
+  uma.
+
+Em ambas, "entregas" = `numero_de_pedidos_aceitos_e_concluidos` (coluna
+`Pedidos`), não `Rotas` (corridas completadas).
 
 ## Página "Meu Desempenho" (pra compartilhar com os entregadores)
 

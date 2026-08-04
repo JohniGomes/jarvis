@@ -143,6 +143,12 @@
   .mini-table td { font-size: 12px; padding: 5px 4px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
   .empty-hint { font-size: 12.5px; color: var(--text-faint); padding: 6px 0; }
 
+  .camp-block { margin-bottom: 26px; }
+  .camp-block:last-child { margin-bottom: 0; }
+  .camp-block__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 2px; }
+  .camp-block__head h3 { margin: 0; }
+  .camp-warn { font-size: 12px; color: var(--critical); margin: 0 0 10px; }
+
   .meta-period { font-size: 12.5px; color: var(--text-muted); }
   .meta-goals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
   .meta-goal { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
@@ -203,6 +209,7 @@
     <button type="button" class="tab-btn active" data-view="desempenho">Desempenho por entregador</button>
     <button type="button" class="tab-btn" data-view="analise">An&aacute;lise</button>
     <button type="button" class="tab-btn" data-view="meta">Meta</button>
+    <button type="button" class="tab-btn" data-view="campanhas">Campanhas</button>
   </div>
 
   <section class="panel" id="viewDesempenho">
@@ -347,6 +354,39 @@
               <tbody id="metaCancelBody"></tbody>
             </table>
           </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="viewCampanhas" hidden>
+    <div class="panel__bar">
+      <span class="panel__title">Campanhas de b&ocirc;nus</span>
+    </div>
+    <div class="analise-body">
+      <div class="camp-block">
+        <h3>Start EntreG&ocirc; &mdash; R$200 novos entregadores <span class="count-badge" id="campStartCount">0</span></h3>
+        <p class="analise-col__hint">Cadastro aprovado entre 03/08 e 31/08, com 50 entregas (pedidos) completadas em at&eacute; 7 dias corridos ap&oacute;s a data de aprova&ccedil;&atilde;o.</p>
+        <p class="camp-warn" id="campStartWarn" hidden></p>
+        <div class="table-scroll">
+          <table class="mini-table">
+            <thead><tr><th>Entregador</th><th>Aprova&ccedil;&atilde;o</th><th>Prazo</th><th>Entregas</th><th>Status</th></tr></thead>
+            <tbody id="campStartBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="camp-block">
+        <div class="camp-block__head">
+          <h3>R$100 por semana <span class="count-badge" id="campWeekCount">0</span></h3>
+          <select id="campWeekSelect"></select>
+        </div>
+        <p class="analise-col__hint">R$50 pros 30 primeiros a completarem 40 entregas (pedidos) na semana, com taxa de aceite &ge;70% &mdash; +R$50 extra pra quem tamb&eacute;m ficou com Tempo Online &ge;75% na mesma semana (m&aacute;ximo R$100 por entregador).</p>
+        <div class="table-scroll">
+          <table class="mini-table">
+            <thead><tr><th>#</th><th>Entregador</th><th>Entregas</th><th>% Aceite</th><th>Tempo Online</th><th>Valor</th></tr></thead>
+            <tbody id="campWeekBody"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -680,6 +720,7 @@
       out[key] = {
         phone: cleanPhoneDigits(r.telefone),
         cpf: r.cpf ? String(r.cpf).trim() : '',
+        dataAprovacao: r.data_aprovacao ? String(r.data_aprovacao).trim() : '',
       };
     });
     return out;
@@ -1212,6 +1253,230 @@
       : '<tr><td colspan="3" class="empty-hint">Ninguém com cancelamentos.</td></tr>';
   }
 
+  // ================= Campanhas de bônus (Start EntreGô / R$100 por semana) =================
+  // Datas e regras fixas dos criativos de agosto/2026. Ajuste aqui se a
+  // vigência ou os critérios mudarem numa próxima campanha.
+  var CAMP_START = new Date(2026, 7, 3, 0, 0, 0);
+  var CAMP_END = new Date(2026, 7, 31, 23, 59, 59);
+  var CAMP_ENTREGAS_START = 50;
+  var CAMP_PRAZO_DIAS = 7;
+  var CAMP_ENTREGAS_SEMANA = 40;
+  var CAMP_TOP_N_SEMANA = 30;
+  var CAMP_ACEITE_MIN_SEMANA = 70;
+  var CAMP_ONLINE_MIN_EXTRA = 75;
+  var CAMP_WEEKS = [
+    { label: '03–09/08', start: new Date(2026, 7, 3, 0, 0, 0), end: new Date(2026, 7, 9, 23, 59, 59) },
+    { label: '10–16/08', start: new Date(2026, 7, 10, 0, 0, 0), end: new Date(2026, 7, 16, 23, 59, 59) },
+    { label: '17–23/08', start: new Date(2026, 7, 17, 0, 0, 0), end: new Date(2026, 7, 23, 23, 59, 59) },
+    { label: '24–30/08', start: new Date(2026, 7, 24, 0, 0, 0), end: new Date(2026, 7, 30, 23, 59, 59) },
+    { label: '31/08', start: new Date(2026, 7, 31, 0, 0, 0), end: new Date(2026, 7, 31, 23, 59, 59) },
+  ];
+
+  function addDays(d, n) {
+    var out = new Date(d);
+    out.setDate(out.getDate() + n);
+    return out;
+  }
+  function endOfDay(d) {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
+  }
+
+  // Agrupa linhas do D-1 por id_da_pessoa_entregadora, igual ao aggregateD1
+  // (mesmo motivo: nome corrompido em parte das linhas não pode separar a
+  // pessoa em "duas"), mas mantendo as linhas originais em vez de só o
+  // agregado — as campanhas precisam da ordem cronológica de cada turno,
+  // não só do total.
+  function groupD1RowsById(rows) {
+    var byId = {};
+    rows.forEach(function (r) {
+      var idKey = r.id_da_pessoa_entregadora || normName(r.pessoa_entregadora);
+      if (!byId[idKey]) byId[idKey] = [];
+      byId[idKey].push(r);
+    });
+    var out = {};
+    Object.keys(byId).forEach(function (idKey) {
+      out[idKey] = { rows: byId[idKey], nome: pickCleanName(byId[idKey]) };
+    });
+    return out;
+  }
+
+  function periodoOrderIndex(periodo) {
+    var i = PERIODO_ORDER.indexOf(String(periodo || '').toUpperCase());
+    return i === -1 ? 999 : i;
+  }
+  function sortRowsChrono(rows) {
+    return rows.slice().sort(function (a, b) {
+      var da = parseDateBR(a.data_do_periodo), db = parseDateBR(b.data_do_periodo);
+      if (!da || !db) return 0;
+      if (da.getTime() !== db.getTime()) return da.getTime() - db.getTime();
+      return periodoOrderIndex(a.periodo) - periodoOrderIndex(b.periodo);
+    });
+  }
+
+  // Start EntreGô: R$200 pra quem foi aprovado entre 03/08 e 31/08 e bateu
+  // 50 entregas (pedidos) em até 7 dias corridos após a aprovação. A data de
+  // aprovação vem da coluna "Data de Aprovação" da aba Entregadores — sem
+  // ela, não dá pra avaliar a pessoa (fica de fora, com um aviso se parecer
+  // uma pessoa nova sem essa data preenchida).
+  function computeStartEntreGo(allRows) {
+    var byId = groupD1RowsById(allRows.filter(function (r) {
+      var d = parseDateBR(r.data_do_periodo);
+      return d && d >= CAMP_START;
+    }));
+    var results = [];
+    var semDataCadastro = [];
+    var hoje = new Date();
+
+    Object.keys(byId).forEach(function (idKey) {
+      var grupo = byId[idKey];
+      var entry = POS_VENDAS_BY_NAME[normName(grupo.nome)];
+      var dataAprovacaoStr = entry && entry.dataAprovacao;
+      var aprovacao = dataAprovacaoStr ? parseDateBR(dataAprovacaoStr) : null;
+
+      if (!aprovacao) {
+        var apareceuAntes = allRows.some(function (r) {
+          var idr = r.id_da_pessoa_entregadora || normName(r.pessoa_entregadora);
+          if (idr !== idKey) return false;
+          var d = parseDateBR(r.data_do_periodo);
+          return d && d < CAMP_START;
+        });
+        if (!apareceuAntes) semDataCadastro.push(grupo.nome);
+        return;
+      }
+      if (aprovacao < CAMP_START || aprovacao > CAMP_END) return;
+
+      var prazo = addDays(aprovacao, CAMP_PRAZO_DIAS);
+      var rowsNoPrazo = sortRowsChrono(grupo.rows.filter(function (r) {
+        var d = parseDateBR(r.data_do_periodo);
+        return d && d >= aprovacao && d <= prazo;
+      }));
+
+      var total = 0, dataBateu = null;
+      rowsNoPrazo.forEach(function (r) {
+        total += Number(r.numero_de_pedidos_aceitos_e_concluidos) || 0;
+        if (total >= CAMP_ENTREGAS_START && !dataBateu) dataBateu = parseDateBR(r.data_do_periodo);
+      });
+
+      var status = dataBateu ? 'ganhou' : (hoje <= endOfDay(prazo) ? 'andamento' : 'perdeu');
+      results.push({
+        nome: grupo.nome,
+        aprovacao: aprovacao,
+        prazo: prazo,
+        total: total,
+        status: status,
+        diasParaBater: dataBateu ? Math.round((dataBateu - aprovacao) / 86400000) : null,
+      });
+    });
+
+    var statusOrder = { ganhou: 0, andamento: 1, perdeu: 2 };
+    results.sort(function (a, b) {
+      if (statusOrder[a.status] !== statusOrder[b.status]) return statusOrder[a.status] - statusOrder[b.status];
+      if (a.status === 'ganhou') return a.diasParaBater - b.diasParaBater;
+      return b.total - a.total;
+    });
+
+    return { results: results, semDataCadastro: semDataCadastro };
+  }
+
+  var CAMP_STATUS_LABEL = {
+    ganhou: '✅ Ganhou',
+    andamento: '⏳ Em andamento',
+    perdeu: '❌ Não bateu no prazo',
+  };
+
+  function renderStartEntreGo(data) {
+    document.getElementById('campStartCount').textContent =
+      data.results.filter(function (r) { return r.status === 'ganhou'; }).length;
+
+    var body = document.getElementById('campStartBody');
+    body.innerHTML = data.results.length
+      ? data.results.map(function (r) {
+          var statusTxt = CAMP_STATUS_LABEL[r.status] + (r.diasParaBater != null ? ' (dia ' + r.diasParaBater + ')' : '');
+          return '<tr><td>' + nameWithCpfHtml(r.nome) + '</td><td>' + formatDateBR(r.aprovacao) + '</td><td>' + formatDateBR(r.prazo) + '</td><td>' + r.total + '</td><td>' + statusTxt + '</td></tr>';
+        }).join('')
+      : '<tr><td colspan="5" class="empty-hint">Nenhum entregador com data de aprovação no período (03–31/08) até agora.</td></tr>';
+
+    var warn = document.getElementById('campStartWarn');
+    if (data.semDataCadastro.length) {
+      warn.hidden = false;
+      warn.textContent = data.semDataCadastro.length + ' entregador(es) sem turno antes de 03/08, mas sem "Data de Aprovação" preenchida na aba Entregadores — não dá pra saber se entram no Start EntreGô: ' + data.semDataCadastro.join(', ') + '.';
+    } else {
+      warn.hidden = true;
+    }
+  }
+
+  // R$100 por semana: R$50 pros 30 primeiros a bater 40 entregas (pedidos)
+  // na semana com taxa de aceite ≥70%, +R$50 extra (dentro desses 30) pra
+  // quem também ficou com Tempo Online ≥75% na semana — R$100 no máximo por
+  // pessoa. "Primeiros" = ordem cronológica de quem cruzou as 40 entregas
+  // primeiro dentro da semana (por data + turno).
+  function computeWeeklyBonus(allRows, week) {
+    var weekRows = allRows.filter(function (r) {
+      var d = parseDateBR(r.data_do_periodo);
+      return d && d >= week.start && d <= week.end;
+    });
+    var byId = groupD1RowsById(weekRows);
+
+    var candidates = [];
+    Object.keys(byId).forEach(function (idKey) {
+      var grupo = byId[idKey];
+      var rows = sortRowsChrono(grupo.rows);
+      var ofertadas = 0, aceitas = 0, escSum = 0, escCount = 0, total = 0, dataBateu = null;
+      rows.forEach(function (r) {
+        ofertadas += Number(r.numero_de_corridas_ofertadas) || 0;
+        aceitas += Number(r.numero_de_corridas_aceitas) || 0;
+        var esc = Number(r.tempo_disponivel_escalado);
+        if (!isNaN(esc)) { escSum += Math.min(esc, 100); escCount++; }
+        total += Number(r.numero_de_pedidos_aceitos_e_concluidos) || 0;
+        if (total >= CAMP_ENTREGAS_SEMANA && !dataBateu) {
+          dataBateu = { data: parseDateBR(r.data_do_periodo), periodo: r.periodo };
+        }
+      });
+      if (!dataBateu) return;
+      var taxaAceitePct = ofertadas ? (100 * aceitas / ofertadas) : 0;
+      if (taxaAceitePct < CAMP_ACEITE_MIN_SEMANA) return;
+      candidates.push({
+        nome: grupo.nome,
+        total: total,
+        taxaAceitePct: taxaAceitePct,
+        tempoOnlinePct: escCount ? (escSum / escCount) : 0,
+        dataBateu: dataBateu,
+      });
+    });
+
+    candidates.sort(function (a, b) {
+      if (a.dataBateu.data.getTime() !== b.dataBateu.data.getTime()) return a.dataBateu.data.getTime() - b.dataBateu.data.getTime();
+      return periodoOrderIndex(a.dataBateu.periodo) - periodoOrderIndex(b.dataBateu.periodo);
+    });
+
+    var winners = candidates.slice(0, CAMP_TOP_N_SEMANA).map(function (c, i) {
+      var extra = c.tempoOnlinePct >= CAMP_ONLINE_MIN_EXTRA;
+      return { rank: i + 1, nome: c.nome, total: c.total, taxaAceitePct: c.taxaAceitePct, tempoOnlinePct: c.tempoOnlinePct, valor: extra ? 100 : 50, extra: extra };
+    });
+    return { winners: winners };
+  }
+
+  function renderWeeklyBonus() {
+    var select = document.getElementById('campWeekSelect');
+    var week = CAMP_WEEKS[Number(select.value)];
+    var data = computeWeeklyBonus(RAW_D1, week);
+
+    document.getElementById('campWeekCount').textContent = data.winners.length;
+    var body = document.getElementById('campWeekBody');
+    body.innerHTML = data.winners.length
+      ? data.winners.map(function (w) {
+          var valorTxt = 'R$ ' + w.valor + (w.extra ? ' (+ tempo online)' : '');
+          return '<tr><td>' + w.rank + '</td><td>' + nameWithCpfHtml(w.nome) + '</td><td>' + w.total + '</td><td>' + fmtPct(w.taxaAceitePct) + '</td><td>' + fmtPct(w.tempoOnlinePct) + '</td><td>' + valorTxt + '</td></tr>';
+        }).join('')
+      : '<tr><td colspan="6" class="empty-hint">Ninguém bateu 40 entregas com taxa de aceite ≥70% nessa semana ainda.</td></tr>';
+  }
+
+  function renderCampanhas() {
+    if (!RAW_D1) return;
+    renderStartEntreGo(computeStartEntreGo(RAW_D1));
+    renderWeeklyBonus();
+  }
+
   function renderTable() {
     var q = document.getElementById('searchInput').value.trim().toLowerCase();
     var rows = merged.filter(function (p) { return p.d1; });
@@ -1371,12 +1636,27 @@
         document.getElementById('viewDesempenho').hidden = view !== 'desempenho';
         document.getElementById('viewAnalise').hidden = view !== 'analise';
         document.getElementById('viewMeta').hidden = view !== 'meta';
+        document.getElementById('viewCampanhas').hidden = view !== 'campanhas';
       });
     });
     document.getElementById('simRange').addEventListener('input', renderSimulator);
     document.getElementById('aiSummaryBtn').addEventListener('click', requestAiSummary);
 
+    var weekSelect = document.getElementById('campWeekSelect');
+    CAMP_WEEKS.forEach(function (w, i) {
+      var opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = 'Semana ' + (i + 1) + ' (' + w.label + ')';
+      weekSelect.appendChild(opt);
+    });
+    var hoje = new Date();
+    var defaultWeekIdx = CAMP_WEEKS.findIndex(function (w) { return hoje >= w.start && hoje <= w.end; });
+    if (defaultWeekIdx === -1) defaultWeekIdx = hoje < CAMP_WEEKS[0].start ? 0 : CAMP_WEEKS.length - 1;
+    weekSelect.value = defaultWeekIdx;
+    weekSelect.addEventListener('change', renderWeeklyBonus);
+
     recompute();
+    renderCampanhas();
   }
 })();
 </script>

@@ -202,8 +202,10 @@ function padDigits11(val) {
 }
 
 // Lê a aba "Entregadores" (lista completa dos aprovados) pelo nome do
-// cabeçalho — essa planilha tem cabeçalho legível (Nome/CPF/Telefone), não
-// precisa ler por posição de coluna.
+// cabeçalho — essa planilha tem cabeçalho legível (Nome/CPF/Telefone/Data de
+// Aprovação), não precisa ler por posição de coluna. A coluna "Data de
+// Aprovação" é opcional (usada só pelas campanhas de bônus na aba
+// Campanhas) — se não existir, tudo o mais continua funcionando normal.
 function readEntregadoresAprovados(sheet) {
   var values = sheet.getDataRange().getValues();
   if (values.length < 2) return [];
@@ -211,14 +213,18 @@ function readEntregadoresAprovados(sheet) {
   var nomeIdx = headers.indexOf('Nome');
   var cpfIdx = headers.indexOf('CPF');
   var telIdx = headers.indexOf('Telefone');
+  var dataIdx = headers.indexOf('Data de Aprovação');
+  var tz = Session.getScriptTimeZone();
   var rows = [];
   for (var i = 1; i < values.length; i++) {
     var nome = values[i][nomeIdx];
     if (!nome) continue;
+    var dataVal = dataIdx === -1 ? '' : values[i][dataIdx];
     rows.push({
       pessoa_entregadora: String(nome).trim(),
       cpf: cpfIdx === -1 ? '' : padDigits11(values[i][cpfIdx]),
       telefone: telIdx === -1 ? '' : padDigits11(values[i][telIdx]),
+      data_aprovacao: !dataVal ? '' : (isDateValue(dataVal) ? formatSheetDate(dataVal, tz) : String(dataVal).trim()),
     });
   }
   return rows;
