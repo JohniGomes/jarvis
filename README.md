@@ -8,6 +8,39 @@ Script publicado como Web App. **O painel é aberto (sem senha)**: qualquer
 pessoa com o link do GitHub Pages vê os dados, incluindo nome, CPF e telefone
 dos entregadores. Nenhum dado fica gravado no repositório.
 
+## Migração pra Supabase (em andamento)
+
+O painel (`index.html`) ainda roda 100% em cima do Google Sheets/Apps
+Script (seções abaixo) — isso está sendo migrado aos poucos pra Supabase,
+com dois robôs que coletam dados todo dia sem precisar pedir manualmente:
+
+- **`sem_corridas.py`** (Praça de São Paulo, sistema.entregoaguasclaras.com.br)
+  roda via **GitHub Actions** (`.github/workflows/sync-sem-corridas.yml`,
+  cron diário + `workflow_dispatch` manual). Sobrescreve a tabela
+  `sem_corridas` por completo a cada rodada — não é congelada.
+- **`d1_sync.py`** (relatório Performance, franqueado.entregolog.com) **não
+  pode** rodar no GitHub Actions: esse site fica atrás de um WAF (Akamai)
+  que bloqueia IPs de datacenter/nuvem com "Access Denied", incluindo os
+  runners do GitHub. Por isso ele roda como uma **Tarefa Agendada do
+  Windows** (`EntreGO-Sync-D1`) direto numa máquina real (a mesma
+  já usada pela automação de Gestor de Escalas), via `run_d1_sync.bat`
+  (faz `git pull` + roda o script + loga em `logs/d1_sync.log`). Precisa
+  dessa máquina ligada e conectada no horário agendado (07:00).
+- Esse site também exige um código de verificação por e-mail a cada login
+  (2FA) — `robots/email_otp.py` lê esse código direto da caixa IMAP
+  (Titan), sem precisar de intervenção manual.
+- Credenciais de ambos os robôs: veja `.env.example` na raiz do repo.
+  Local, use um `.env` (nunca commitado); no GitHub Actions, cadastre os
+  mesmos nomes em **Settings → Secrets and variables → Actions** do
+  repositório.
+- Schema das tabelas: `supabase/schema.sql` (rodar uma vez no SQL Editor
+  do Supabase). Scripts de migração pontual da planilha atual pro Supabase:
+  `scripts/backfill-from-sheets.mjs` e `backfill-sem-corridas-tsv.mjs`.
+
+As Edge Functions (rotas sensíveis do `Code.gs`) e a troca do front-end pra
+ler do Supabase ainda não foram feitas — o painel público continua sendo o
+Apps Script normalmente até essa próxima etapa.
+
 ## 1. Publicar o Apps Script
 
 1. Abra a planilha (aba `D-1`) → **Extensões → Apps Script**.
