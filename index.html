@@ -425,10 +425,12 @@
 
 <script>
 (function () {
-  // URL do Web App do Apps Script. O painel é aberto (sem senha) — quem tiver
-  // esse link vê os dados diretamente, então não coloque nada sensível além
-  // do que já está combinado ficar público aqui.
-  var DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwrec_feoCSZ6yP9Yymoz_A-c6zZySZjeqZz4Hf-5FndLGLC8_6qp2siI5foTzykF1LFQ/exec';
+  // Supabase substituiu o Google Sheets/Apps Script como fonte de dados. O
+  // painel continua aberto (sem senha) — a chave "publishable" abaixo é
+  // pública por design (equivalente à antiga "anon key"), protegida pelas
+  // regras de RLS no banco (só leitura), não por sigilo do valor em si.
+  var SUPABASE_URL = 'https://dhwbypumhfzstbiatquw.supabase.co';
+  var SUPABASE_ANON_KEY = 'sb_publishable_0ww1Pl1fMSXZU9D68Kkp_w_bFxpW_0E';
 
   var loadingScreen = document.getElementById('loadingScreen');
   var dashboardScreen = document.getElementById('dashboardScreen');
@@ -439,32 +441,73 @@
     gateErr.classList.add('show');
   }
 
-  function fetchTab(baseUrl, tab) {
-    var sep = baseUrl.indexOf('?') === -1 ? '?' : '&';
-    return fetch(baseUrl + sep + 'tab=' + encodeURIComponent(tab))
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data && data.error) throw new Error(data.error);
-        return data;
+  // O PostgREST do Supabase devolve no máximo 1000 linhas por chamada por
+  // padrão — com o D-1 já passando de 18 mil linhas, precisa paginar via
+  // cabeçalho Range. A 1ª página já diz o total (Content-Range), então as
+  // páginas restantes saem todas em paralelo em vez de uma de cada vez.
+  function supaFetchAll(table) {
+    var pageSize = 1000;
+    function fetchPage(offset) {
+      return fetch(SUPABASE_URL + '/rest/v1/' + table + '?select=*', {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+          Range: offset + '-' + (offset + pageSize - 1),
+        },
+      }).then(function (r) {
+        if (!r.ok) throw new Error('Supabase (' + table + ') respondeu ' + r.status);
+        var contentRange = r.headers.get('content-range') || '';
+        var total = Number(contentRange.split('/')[1]) || 0;
+        return r.json().then(function (rows) { return { rows: rows, total: total }; });
       });
+    }
+    return fetchPage(0).then(function (first) {
+      if (first.total <= first.rows.length) return first.rows;
+      var offsets = [];
+      for (var offset = first.rows.length; offset < first.total; offset += pageSize) offsets.push(offset);
+      return Promise.all(offsets.map(fetchPage)).then(function (results) {
+        var all = first.rows.slice();
+        results.forEach(function (res) { all = all.concat(res.rows); });
+        return all;
+      });
+    });
+  }
+
+  // Datas vêm do Postgres em ISO (yyyy-mm-dd) -- o resto do painel já espera
+  // dd/MM/yyyy (mesmo formato que a planilha/Apps Script sempre devolveu),
+  // então converte aqui, na borda, em vez de mexer em toda a lógica depois.
+  function isoToBR(iso) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? (m[3] + '/' + m[2] + '/' + m[1]) : '';
   }
 
   function loadDashboard() {
-    // Uma chamada só ao Apps Script (aba "Dashboard" = D-1 + contatos juntos)
-    // em vez de duas requisições separadas — evita duas execuções do script
-    // rodando (ou enfileiradas) ao mesmo tempo. Os contatos continuam
-    // opcionais: se a planilha externa de Pós-vendas falhar, o próprio
-    // Code.gs já devolve posVendas vazio em vez de derrubar o D-1.
-    fetchTab(DEFAULT_APPS_SCRIPT_URL, 'Dashboard')
-      .then(function (data) {
+    Promise.all([
+      supaFetchAll('d1_rows'),
+      supaFetchAll('entregadores'),
+      supaFetchAll('sem_corridas'),
+    ])
+      .then(function (results) {
+        var d1Rows = results[0].map(function (r) {
+          return Object.assign({}, r, { data_do_periodo: isoToBR(r.data_do_periodo) });
+        });
+        // entregadores usa "nome" -- o resto do painel (CPF/telefone/data de
+        // aprovação por nome) já espera a forma "pessoa_entregadora", mesma
+        // shape que a aba Pós-vendas sempre teve.
+        var entregadoresRows = results[1].map(function (r) {
+          return { pessoa_entregadora: r.nome, cpf: r.cpf, telefone: r.telefone, data_aprovacao: isoToBR(r.data_aprovacao) };
+        });
+        var semCorridasRows = results[2].map(function (r) {
+          return { nome: r.nome, telefone: r.telefone, cpf: r.cpf, praca: r.praca, aprovado_em: isoToBR(r.aprovado_em) };
+        });
         loadingScreen.hidden = true;
         dashboardScreen.hidden = false;
-        initDashboard(data.d1 || [], data.posVendas || [], data.semCorridas || []);
+        initDashboard(d1Rows, entregadoresRows, semCorridasRows);
       })
       .catch(function (err) {
         var msg = String(err.message || err);
         if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1) {
-          showError('Não consegui alcançar o painel. Confira se o Apps Script foi implantado como Web App (Acesso: Qualquer pessoa).');
+          showError('Não consegui alcançar o Supabase. Confira sua conexão.');
         } else {
           showError('Erro: ' + msg);
         }
@@ -1120,16 +1163,17 @@
     var btn = document.getElementById('aiSummaryBtn');
     var out = document.getElementById('aiSummaryResult');
     if (!currentAnalysis) return;
-    var url = DEFAULT_APPS_SCRIPT_URL;
     btn.disabled = true;
     out.innerHTML = '<span class="empty-hint">Gerando resumo…</span>';
-    // GET, não POST: o Content Service do Apps Script não devolve cabeçalhos
-    // CORS em respostas de POST, então o navegador bloqueia a leitura mesmo
-    // com a chamada indo certinho no servidor. GET com os dados no
-    // querystring é o mesmo caminho que já funciona pra aba D-1.
-    var sep = url.indexOf('?') === -1 ? '?' : '&';
-    var qs = sep + 'action=analyze&data=' + encodeURIComponent(JSON.stringify(buildAiPayload()));
-    fetch(url + qs)
+    fetch(SUPABASE_URL + '/functions/v1/analyze', {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(buildAiPayload()),
+    })
       .then(function (r) { return r.json(); })
       .then(function (res) {
         btn.disabled = false;
@@ -1510,12 +1554,12 @@
       return;
     }
     body.innerHTML = rows.map(function (r) {
-      var cpfDigits = String(r.CPF || '').replace(/\D/g, '');
+      var cpfDigits = String(r.cpf || '').replace(/\D/g, '');
       while (cpfDigits.length < 11) cpfDigits = '0' + cpfDigits;
       return '<tr>' +
-        '<td>' + (r.Nome || '') + '</td>' +
-        '<td>' + (r.Praca || '') + '</td>' +
-        '<td>' + (r.Aprovado_em || '') + '</td>' +
+        '<td>' + (r.nome || '') + '</td>' +
+        '<td>' + (r.praca || '') + '</td>' +
+        '<td>' + (r.aprovado_em || '') + '</td>' +
         '<td><button type="button" class="send-chatwoot-btn" data-cpf="' + cpfDigits + '">Enviar</button></td>' +
         '</tr>';
     }).join('');
@@ -1528,8 +1572,15 @@
     var cpf = btn.getAttribute('data-cpf');
     btn.disabled = true;
     btn.textContent = 'Enviando…';
-    var sep = DEFAULT_APPS_SCRIPT_URL.indexOf('?') === -1 ? '?' : '&';
-    fetch(DEFAULT_APPS_SCRIPT_URL + sep + 'action=sendChatwoot&cpf=' + encodeURIComponent(cpf))
+    fetch(SUPABASE_URL + '/functions/v1/send-chatwoot', {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cpf: cpf }),
+    })
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (res && res.error) {
