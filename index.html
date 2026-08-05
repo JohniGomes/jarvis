@@ -804,6 +804,7 @@
       var key = normName(r.pessoa_entregadora);
       if (!key) return;
       out[key] = {
+        nome: r.pessoa_entregadora ? String(r.pessoa_entregadora).trim() : '',
         phone: cleanPhoneDigits(r.telefone),
         cpf: r.cpf ? String(r.cpf).trim() : '',
         dataAprovacao: r.data_aprovacao ? String(r.data_aprovacao).trim() : '',
@@ -1406,16 +1407,25 @@
   // ela, não dá pra avaliar a pessoa (fica de fora, com um aviso se parecer
   // uma pessoa nova sem essa data preenchida).
   function computeStartEntreGo(allRows) {
+    // A lista de quem entra na campanha vem de quem foi APROVADO na janela
+    // (tabela entregadores/POS_VENDAS_BY_NAME) -- não de quem já tem turno
+    // no D-1. Gente recém-aprovada que ainda não rodou nenhum turno tem que
+    // aparecer como "em andamento" com 0 entregas, não sumir da lista até o
+    // primeiro turno.
     var byId = groupD1RowsById(allRows.filter(function (r) {
       var d = parseDateBR(r.data_do_periodo);
       return d && d >= CAMP_START;
     }));
+    var rowsByName = {};
+    Object.keys(byId).forEach(function (idKey) {
+      rowsByName[normName(byId[idKey].nome)] = byId[idKey].rows;
+    });
+
     var results = [];
     var hoje = new Date();
 
-    Object.keys(byId).forEach(function (idKey) {
-      var grupo = byId[idKey];
-      var entry = POS_VENDAS_BY_NAME[normName(grupo.nome)];
+    Object.keys(POS_VENDAS_BY_NAME).forEach(function (nameKey) {
+      var entry = POS_VENDAS_BY_NAME[nameKey];
       var dataAprovacaoStr = entry && entry.dataAprovacao;
       var aprovacao = dataAprovacaoStr ? parseDateBR(dataAprovacaoStr) : null;
 
@@ -1423,7 +1433,8 @@
       if (aprovacao < CAMP_START || aprovacao > CAMP_END) return;
 
       var prazo = addDays(aprovacao, CAMP_PRAZO_DIAS);
-      var rowsNoPrazo = sortRowsChrono(grupo.rows.filter(function (r) {
+      var rowsDaPessoa = rowsByName[nameKey] || [];
+      var rowsNoPrazo = sortRowsChrono(rowsDaPessoa.filter(function (r) {
         var d = parseDateBR(r.data_do_periodo);
         return d && d >= aprovacao && d <= prazo;
       }));
@@ -1436,7 +1447,7 @@
 
       var status = dataBateu ? 'ganhou' : (hoje <= endOfDay(prazo) ? 'andamento' : 'perdeu');
       results.push({
-        nome: grupo.nome,
+        nome: entry.nome || nameKey,
         aprovacao: aprovacao,
         prazo: prazo,
         total: total,
