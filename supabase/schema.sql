@@ -30,7 +30,11 @@ create table if not exists d1_rows (
   numero_de_pedidos_aceitos_e_concluidos numeric default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint d1_rows_natural_key unique (data_do_periodo, periodo, id_da_pessoa_entregadora, sub_praca)
+  -- NULLS NOT DISTINCT: sem isso, Postgres trata NULL != NULL e o upsert do
+  -- d1_sync (ON CONFLICT nessa mesma chave) deixa de bloquear duplicatas
+  -- toda vez que sub_praca ou id_da_pessoa_entregadora vem vazio no CSV --
+  -- foi o que gerou 306 linhas repetidas em 03-04/08/2026 (corrigido).
+  constraint d1_rows_natural_key unique nulls not distinct (data_do_periodo, periodo, id_da_pessoa_entregadora, sub_praca)
 );
 create index if not exists d1_rows_data_idx on d1_rows (data_do_periodo);
 create index if not exists d1_rows_pessoa_idx on d1_rows (id_da_pessoa_entregadora);
