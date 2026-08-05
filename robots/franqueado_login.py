@@ -68,7 +68,7 @@ def login(page: Page):
     campo_codigo = page.get_by_label(re.compile("c.digo", re.I))
     if campo_codigo.count() == 0:
         campo_codigo = page.get_by_placeholder(re.compile("c.digo", re.I))
-    campo_codigo.first.wait_for(timeout=15000)
+    campo_codigo.first.wait_for(timeout=30000)
     campo_codigo.first.fill(codigo)
     _clicar_continuar(page)
     page.wait_for_timeout(3000)

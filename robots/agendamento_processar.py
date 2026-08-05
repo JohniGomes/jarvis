@@ -32,6 +32,12 @@ def main():
             teve_pendente = processar_ciclo(page, url, headers)
             if not teve_pendente:
                 log("Nenhum pendente encontrado (webhook disparou à toa ou já foi processado).")
+        except Exception:
+            try:
+                page.screenshot(path="robots/debug_agendamento_watcher.png", full_page=True)
+            except Exception:
+                pass
+            raise
         finally:
             browser.close()
 
