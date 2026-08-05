@@ -172,6 +172,41 @@ def marcar_erro(url, headers, pendentes, msg):
         )
 
 
+def processar_ciclo(page, url, headers):
+    """Um ciclo: busca pendentes, aplica na elegibilidade e sobe a planilha
+    pro franqueado. Retorna True se tinha algo pra processar (usado tanto
+    pelo watcher local em loop quanto pelo run único disparado por webhook
+    no GitHub Actions -- ver agendamento_processar.py)."""
+    pendentes = buscar_pendentes(url, headers)
+    if not pendentes:
+        return False
+
+    nomes = ", ".join(f"{p['nome']} ({p['pendente']})" for p in pendentes)
+    log(f"{len(pendentes)} pedido(s) pendente(s): {nomes}")
+
+    try:
+        aplicar_pendentes_na_elegibilidade(url, headers, pendentes)
+        csv_texto, total_linhas = montar_csv_completo(url, headers)
+        log(f"Enviando planilha de elegibilidade ({total_linhas} linhas)...")
+        enviar_csv_elegibilidade(page, csv_texto)
+        marcar_concluido(url, headers, pendentes)
+        log("Concluído.")
+    except Exception as e:
+        erro_msg = f"{type(e).__name__}: {e}"
+        log(f"ERRO ao processar pendentes: {erro_msg}")
+        traceback.print_exc()
+        try:
+            page.screenshot(path="robots/debug_agendamento_watcher.png", full_page=True)
+        except Exception:
+            pass
+        try:
+            marcar_erro(url, headers, pendentes, erro_msg)
+        except Exception:
+            pass
+        raise
+    return True
+
+
 def main():
     url, headers = _supa_headers()
 
@@ -191,32 +226,10 @@ def main():
                     franqueado_login(page)
                     login_em = time.time()
 
-                pendentes = buscar_pendentes(url, headers)
-                if not pendentes:
+                teve_pendente = processar_ciclo(page, url, headers)
+                if not teve_pendente:
                     time.sleep(POLL_SECONDS)
-                    continue
-
-                nomes = ", ".join(f"{p['nome']} ({p['pendente']})" for p in pendentes)
-                log(f"{len(pendentes)} pedido(s) pendente(s): {nomes}")
-
-                aplicar_pendentes_na_elegibilidade(url, headers, pendentes)
-                csv_texto, total_linhas = montar_csv_completo(url, headers)
-                log(f"Enviando planilha de elegibilidade ({total_linhas} linhas)...")
-                enviar_csv_elegibilidade(page, csv_texto)
-                marcar_concluido(url, headers, pendentes)
-                log("Concluído.")
-            except Exception as e:
-                erro_msg = f"{type(e).__name__}: {e}"
-                log(f"ERRO ao processar pendentes: {erro_msg}")
-                traceback.print_exc()
-                try:
-                    page.screenshot(path="robots/debug_agendamento_watcher.png", full_page=True)
-                except Exception:
-                    pass
-                try:
-                    marcar_erro(url, headers, pendentes, erro_msg)
-                except Exception:
-                    pass
+            except Exception:
                 # Tenta relogar (pode ter sido sessão expirada) antes do próximo ciclo.
                 try:
                     franqueado_login(page)

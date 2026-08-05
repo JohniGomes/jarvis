@@ -1,0 +1,49 @@
+name: Agendamento (dispatch)
+
+on:
+  # Disparado por um Database Webhook do Supabase (ver supabase/agendamento_webhook.sql)
+  # sempre que agendamento_status.pendente é gravado -- em vez de um loop
+  # local escutando a cada 2s pra sempre, cada clique em Liberar/Bloquear
+  # aciona um run único aqui.
+  repository_dispatch:
+    types: [agendamento-pendente]
+  workflow_dispatch: {}
+  schedule:
+    # Rede de segurança: se o webhook do Supabase falhar por algum motivo,
+    # isso garante que nenhum pendente fica esquecido por mais de 10 min.
+    - cron: '*/10 * * * *'
+
+jobs:
+  processar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependências
+        run: |
+          pip install -r robots/requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Processar pendentes de agendamento
+        env:
+          FRANQUEADO_EMAIL: ${{ secrets.FRANQUEADO_EMAIL }}
+          FRANQUEADO_PASSWORD: ${{ secrets.FRANQUEADO_PASSWORD }}
+          EMAIL_IMAP_PASSWORD: ${{ secrets.EMAIL_IMAP_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
+          PROXY_USERNAME: ${{ secrets.PROXY_USERNAME }}
+          PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+        run: python -m robots.agendamento_processar
+
+      - name: Salvar screenshot de erro (se falhar)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-agendamento-processar
+          path: robots/debug_agendamento_watcher.png
+          if-no-files-found: ignore
