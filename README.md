@@ -34,6 +34,16 @@ Nenhum dado fica gravado no repositório.
   `workflow_dispatch` manual). Sobrescreve a tabela `sem_corridas` por
   completo a cada rodada — não fica uma visão congelada, sempre reflete a
   última coleta.
+- **`robots/entregadores_sync.py`** (Praça de São Paulo,
+  sistema.entregoaguasclaras.com.br → tela `/registrations`) roda via
+  **GitHub Actions** (`.github/workflows/sync-entregadores.yml`, cron diário
+  + `workflow_dispatch`). Baixa o CSV de exportação da seção "Aprovado"
+  (o export ignora os filtros da tela e sempre traz todo mundo, então o
+  filtro de praça é feito em Python depois de baixar), e faz **upsert por
+  CPF** na tabela `entregadores` — diferente do Sem Corridas, aqui é
+  merge/upsert, não substituição total, porque `entregadores` é o roster
+  completo (histórico), não um snapshot do dia. É o que alimenta a
+  `data_aprovacao` usada pelas campanhas da aba Campanhas.
 - **`robots/d1_sync.py`** (relatório Performance,
   franqueado.entregolog.com) **não pode** rodar no GitHub Actions: esse
   site fica atrás de um WAF (Akamai) que bloqueia IPs de datacenter/nuvem
