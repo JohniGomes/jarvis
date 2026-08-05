@@ -2,8 +2,13 @@ name: Sync Entregadores
 
 on:
   schedule:
-    # 06:10 America/Sao_Paulo (UTC-3) = 09:10 UTC
-    - cron: '10 9 * * *'
+    # A cada 30 min. Pedido do usuário 05/08/2026 -- frequência maior que
+    # 1x/dia pra pegar aprovações recentes rápido (ex.: CPF avulso no painel
+    # que ainda não tinha ifood_id). Cuidado: esse robô faz login no mesmo
+    # franqueado.entregolog.com usado por d1_sync e agendamento_watcher --
+    # se o Akamai (WAF) começar a bloquear por excesso de logins, é aqui
+    # que se deve reduzir a frequência de novo.
+    - cron: '*/30 * * * *'
   workflow_dispatch: {}
 
 jobs:
