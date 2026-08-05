@@ -42,10 +42,13 @@ def login(page: Page):
     campo_email.first.fill(email)
     _clicar_continuar(page)
 
+    # Quando o site não reconhece o dispositivo/IP (sempre o caso vindo de
+    # nuvem, proxy troca de IP a cada execução), ele roda uma validação
+    # extra antes de mostrar a senha, que pode demorar bem mais que local.
     campo_senha = page.get_by_label(re.compile("senha", re.I))
     if campo_senha.count() == 0:
         campo_senha = page.get_by_placeholder(re.compile("senha", re.I))
-    campo_senha.first.wait_for(timeout=15000)
+    campo_senha.first.wait_for(timeout=40000)
     campo_senha.first.fill(senha)
     _clicar_continuar(page)
 
