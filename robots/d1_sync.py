@@ -63,6 +63,10 @@ def gerar_e_baixar(page, data_inicio, data_fim, destino):
     _wait_networkidle_soft(page)
 
     page.get_by_text("Selecione", exact=True).first.click()
+    # Via proxy/nuvem o dropdown pode demorar um pouco mais pra abrir e
+    # popular as opções -- sem esse wait, o click seguinte às vezes procura
+    # a opção antes dela existir no DOM.
+    page.wait_for_timeout(800)
     page.get_by_role("option", name=re.compile(RELATORIO_TIPO, re.I)).click()
 
     _selecionar_dia_calendario(page, "Data início", data_inicio)
