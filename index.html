@@ -175,6 +175,16 @@
   .wa-btn:hover { filter: brightness(1.05); }
   .send-chatwoot-btn { font-family: inherit; font-size: 11.5px; font-weight: 600; color: #fff; background: #25D366; border: none; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
   .send-chatwoot-btn:disabled { opacity: 0.6; cursor: default; }
+  .agenda-status { display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+  .agenda-status--liberado { color: #1a9e4a; }
+  .agenda-status--bloqueado { color: #8a8f98; }
+  .agenda-status--pendente { color: #b8860b; }
+  .agenda-btn { font-family: inherit; font-size: 11.5px; font-weight: 600; color: #fff; border: none; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  .agenda-btn:disabled { opacity: 0.6; cursor: default; }
+  .agenda-btn--liberar { background: #1a9e4a; }
+  .agenda-btn--bloquear { background: #c0392b; }
+  .agenda-hint { font-size: 11px; color: #8a8f98; }
+  .agenda-erro { display: block; font-size: 10.5px; color: #c0392b; margin-top: 3px; cursor: help; }
 
   footer.pagefoot { margin-top: 18px; font-size: 12px; color: var(--text-faint); text-align: center; }
 
@@ -245,6 +255,7 @@
             <th data-key="rotas" title="Corridas completadas">Rotas</th>
             <th data-key="taxa_aceite_pct">% Aceite</th>
             <th data-key="tempo_online_pct" title="Média do % de tempo online calculado pela plataforma em cada turno dessa pessoa">Tempo Online</th>
+            <th>Agendamento</th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -506,6 +517,7 @@
       supaFetchAll('entregadores', 'cpf.asc'),
       supaFetchAll('sem_corridas', 'cpf.asc'),
       supaFetchAll('chatwoot_envios', 'cpf.asc'),
+      supaFetchAll('agendamento_status', 'cpf.asc'),
     ])
       .then(function (results) {
         var d1Rows = results[0].map(function (r) {
@@ -523,6 +535,10 @@
         chatwootEnviosCpfs = {};
         results[3].forEach(function (r) {
           chatwootEnviosCpfs[String(r.cpf || '')] = true;
+        });
+        AGENDAMENTO_STATUS_BY_CPF = {};
+        results[4].forEach(function (r) {
+          AGENDAMENTO_STATUS_BY_CPF[String(r.cpf || '')] = { status: r.status, pendente: r.pendente, erro_msg: r.erro_msg };
         });
         loadingScreen.hidden = true;
         dashboardScreen.hidden = false;
@@ -833,6 +849,10 @@
     var digits = String(raw || '').replace(/\D/g, '');
     if (digits.length !== 11) return raw || '';
     return digits.slice(0, 3) + '.' + digits.slice(3, 6) + '.' + digits.slice(6, 9) + '-' + digits.slice(9);
+  }
+  function cpfDigitsByName(nome) {
+    var entry = POS_VENDAS_BY_NAME[normName(nome)];
+    return entry ? String(entry.cpf || '').replace(/\D/g, '') : '';
   }
   function cpfByName(nome) {
     var entry = POS_VENDAS_BY_NAME[normName(nome)];
@@ -1650,7 +1670,7 @@
     var tbody = document.getElementById('tableBody');
     tbody.innerHTML = '';
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="9">Nenhum entregador encontrado.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Nenhum entregador encontrado.</td></tr>';
       return;
     }
     rows.forEach(function (p) {
@@ -1669,9 +1689,81 @@
         '<td>' + d1.canceladas.toLocaleString('pt-BR') + deltaPct(d1.canceladas, prev && prev.canceladas, c) + '</td>' +
         '<td>' + d1.rotas.toLocaleString('pt-BR') + deltaPct(d1.rotas, prev && prev.rotas, c) + '</td>' +
         '<td>' + barCell(d1.taxa_aceite_pct) + deltaPP(d1.taxa_aceite_pct, prev && prev.taxa_aceite_pct, c) + '</td>' +
-        '<td>' + barCell(d1.tempo_online_pct) + deltaPP(d1.tempo_online_pct, prev && prev.tempo_online_pct, c) + '</td>';
+        '<td>' + barCell(d1.tempo_online_pct) + deltaPP(d1.tempo_online_pct, prev && prev.tempo_online_pct, c) + '</td>' +
+        '<td>' + agendamentoCellHtml(p.nome) + '</td>';
       tbody.appendChild(tr);
     });
+
+    body_bindAgendamentoButtons(tbody);
+  }
+
+  // ---- Liberar/Bloquear Agendamento (elegibilidade de booking no franqueado) ----
+  // Estado vem da tabela agendamento_status (Supabase), alimentada pelo
+  // botão via a Edge Function agendamento-toggle e processada de verdade
+  // pelo vigia local (robots/agendamento_watcher.py) -- o clique aqui só
+  // marca um pedido pendente, não executa na hora.
+  var AGENDAMENTO_STATUS_BY_CPF = {};
+
+  function agendamentoCellHtml(nome) {
+    var cpfDigits = cpfDigitsByName(nome);
+    if (!cpfDigits) return '<span class="agenda-hint">sem CPF</span>';
+    var entry = AGENDAMENTO_STATUS_BY_CPF[cpfDigits];
+    var status = entry ? entry.status : 'bloqueado';
+    var pendente = entry ? entry.pendente : null;
+
+    if (pendente) {
+      var label = pendente === 'liberar' ? 'Liberando…' : 'Bloqueando…';
+      return '<span class="agenda-status agenda-status--pendente">' + label + '</span>';
+    }
+
+    var statusLabel = status === 'liberado'
+      ? '<span class="agenda-status agenda-status--liberado">Agendamento liberado</span>'
+      : '<span class="agenda-status agenda-status--bloqueado">Agendamento bloqueado</span>';
+    var acao = status === 'liberado' ? 'bloquear' : 'liberar';
+    var btnLabel = status === 'liberado' ? 'Bloquear Agendamento' : 'Liberar Agendamento';
+    var btnClass = status === 'liberado' ? 'agenda-btn agenda-btn--bloquear' : 'agenda-btn agenda-btn--liberar';
+    var erroHtml = entry && entry.erro_msg ? '<span class="agenda-erro" title="' + String(entry.erro_msg).replace(/"/g, '&quot;') + '">⚠ erro no último envio</span>' : '';
+    return statusLabel +
+      '<button type="button" class="' + btnClass + '" data-cpf="' + cpfDigits + '" data-acao="' + acao + '">' + btnLabel + '</button>' +
+      erroHtml;
+  }
+
+  function body_bindAgendamentoButtons(tbody) {
+    tbody.querySelectorAll('.agenda-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { toggleAgendamento(btn); });
+    });
+  }
+
+  function toggleAgendamento(btn) {
+    var cpf = btn.getAttribute('data-cpf');
+    var acao = btn.getAttribute('data-acao');
+    btn.disabled = true;
+    btn.textContent = acao === 'liberar' ? 'Liberando…' : 'Bloqueando…';
+    fetch(SUPABASE_URL + '/functions/v1/agendamento-toggle', {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cpf: cpf, acao: acao }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res && res.error) {
+          btn.disabled = false;
+          btn.textContent = acao === 'liberar' ? 'Liberar Agendamento' : 'Bloquear Agendamento';
+          alert('Erro: ' + res.error);
+          return;
+        }
+        AGENDAMENTO_STATUS_BY_CPF[cpf] = Object.assign({}, AGENDAMENTO_STATUS_BY_CPF[cpf], { pendente: acao, erro_msg: null });
+        renderTable();
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = acao === 'liberar' ? 'Liberar Agendamento' : 'Bloquear Agendamento';
+        alert('Erro: ' + err.message);
+      });
   }
 
   var minDataDate = null, maxDataDate = null;

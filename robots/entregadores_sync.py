@@ -84,6 +84,7 @@ def parse_csv(texto_csv):
             "nome": nome,
             "telefone": _telefone(row.get("phone")),
             "data_aprovacao": _data_iso(row.get("approval_date")),
+            "ifood_id": (row.get("ifood_id") or "").strip() or None,
         })
     return linhas
 

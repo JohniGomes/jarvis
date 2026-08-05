@@ -47,6 +47,7 @@ create table if not exists entregadores (
   nome text not null,
   telefone text,                                   -- dígitos com 55 na frente
   data_aprovacao date,
+  ifood_id text,                                   -- UUID interno do franqueado.entregolog.com (campo "ifood_id" do CSV de /registrations) -- é o mesmo ID usado como DRIVER_ID na elegibilidade de agendamento
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -86,3 +87,45 @@ create table if not exists chatwoot_envios (
 alter table chatwoot_envios enable row level security;
 drop policy if exists "chatwoot_envios leitura publica" on chatwoot_envios;
 create policy "chatwoot_envios leitura publica" on chatwoot_envios for select using (true);
+
+-- ============================================================================
+-- agendamento_elegibilidade: espelho 1:1 da planilha de elegibilidade do
+-- booking (franqueado.entregolog.com/supply/driver-booking-import). Cada
+-- upload SUBSTITUI a lista inteira no site deles, então guardamos aqui o
+-- estado completo (todo mundo, não só quem a gente mexeu) pra sempre poder
+-- reconstruir o CSV inteiro sem apagar configuração de quem não foi tocado.
+-- Só o robô (service_role) lê/escreve aqui -- não é exposta ao painel.
+-- ============================================================================
+create table if not exists agendamento_elegibilidade (
+  id bigint generated always as identity primary key,
+  ifood_id text not null,
+  reference_id text not null,
+  tipo text not null check (tipo in ('REGION', 'SUB_REGION')),
+  enabled boolean not null default true,
+  updated_at timestamptz not null default now(),
+  constraint agendamento_elegibilidade_natural_key unique (ifood_id, reference_id, tipo)
+);
+create index if not exists agendamento_elegibilidade_ifood_id_idx on agendamento_elegibilidade (ifood_id);
+
+alter table agendamento_elegibilidade enable row level security;
+-- Sem policy de leitura pública de propósito -- só service_role acessa.
+
+-- ============================================================================
+-- agendamento_status: status atual (liberado/bloqueado) por CPF pro painel
+-- mostrar, mais a fila de pedidos pendentes que o botão Liberar/Bloquear
+-- cria. O vigia local (robots/agendamento_watcher.py) fica escutando essa
+-- tabela via Supabase Realtime e processa quem tem "pendente" preenchido.
+-- ============================================================================
+create table if not exists agendamento_status (
+  cpf text primary key,
+  ifood_id text,
+  nome text,
+  status text not null default 'bloqueado' check (status in ('liberado', 'bloqueado')),
+  pendente text check (pendente in ('liberar', 'bloquear')),
+  erro_msg text,
+  updated_at timestamptz not null default now()
+);
+
+alter table agendamento_status enable row level security;
+drop policy if exists "agendamento_status leitura publica" on agendamento_status;
+create policy "agendamento_status leitura publica" on agendamento_status for select using (true);
