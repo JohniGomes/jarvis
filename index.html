@@ -147,7 +147,6 @@
   .camp-block:last-child { margin-bottom: 0; }
   .camp-block__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 2px; }
   .camp-block__head h3 { margin: 0; }
-  .camp-warn { font-size: 12px; color: var(--critical); margin: 0 0 10px; }
 
   .meta-period { font-size: 12.5px; color: var(--text-muted); }
   .meta-goals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
@@ -370,7 +369,6 @@
       <div class="camp-block">
         <h3>Start EntreG&ocirc; &mdash; R$200 novos entregadores <span class="count-badge" id="campStartCount">0</span></h3>
         <p class="analise-col__hint">Cadastro aprovado entre 03/08 e 31/08, com 50 entregas (pedidos) completadas em at&eacute; 7 dias corridos ap&oacute;s a data de aprova&ccedil;&atilde;o.</p>
-        <p class="camp-warn" id="campStartWarn" hidden></p>
         <div class="table-scroll">
           <table class="mini-table">
             <thead><tr><th>Entregador</th><th>Aprova&ccedil;&atilde;o</th><th>Prazo</th><th>Entregas</th><th>Status</th></tr></thead>
@@ -496,11 +494,18 @@
     return m ? (m[3] + '/' + m[2] + '/' + m[1]) : '';
   }
 
+  // CPFs (11 dígitos) que já receberam mensagem via o botão "Enviar" --
+  // preenchido em loadDashboard, usado por renderSemCorridas pra já marcar
+  // o botão como enviado no carregamento (a aba Sem Corridas é sobrescrita
+  // todo dia pelo robô, então esse controle não pode viver nela).
+  var chatwootEnviosCpfs = {};
+
   function loadDashboard() {
     Promise.all([
       supaFetchAll('d1_rows', 'id.asc'),
       supaFetchAll('entregadores', 'cpf.asc'),
       supaFetchAll('sem_corridas', 'cpf.asc'),
+      supaFetchAll('chatwoot_envios', 'cpf.asc'),
     ])
       .then(function (results) {
         var d1Rows = results[0].map(function (r) {
@@ -514,6 +519,10 @@
         });
         var semCorridasRows = results[2].map(function (r) {
           return { nome: r.nome, telefone: r.telefone, cpf: r.cpf, praca: r.praca, aprovado_em: isoToBR(r.aprovado_em) };
+        });
+        chatwootEnviosCpfs = {};
+        results[3].forEach(function (r) {
+          chatwootEnviosCpfs[String(r.cpf || '')] = true;
         });
         loadingScreen.hidden = true;
         dashboardScreen.hidden = false;
@@ -1402,7 +1411,6 @@
       return d && d >= CAMP_START;
     }));
     var results = [];
-    var semDataCadastro = [];
     var hoje = new Date();
 
     Object.keys(byId).forEach(function (idKey) {
@@ -1411,16 +1419,7 @@
       var dataAprovacaoStr = entry && entry.dataAprovacao;
       var aprovacao = dataAprovacaoStr ? parseDateBR(dataAprovacaoStr) : null;
 
-      if (!aprovacao) {
-        var apareceuAntes = allRows.some(function (r) {
-          var idr = r.id_da_pessoa_entregadora || normName(r.pessoa_entregadora);
-          if (idr !== idKey) return false;
-          var d = parseDateBR(r.data_do_periodo);
-          return d && d < CAMP_START;
-        });
-        if (!apareceuAntes) semDataCadastro.push(grupo.nome);
-        return;
-      }
+      if (!aprovacao) return;
       if (aprovacao < CAMP_START || aprovacao > CAMP_END) return;
 
       var prazo = addDays(aprovacao, CAMP_PRAZO_DIAS);
@@ -1453,7 +1452,7 @@
       return b.total - a.total;
     });
 
-    return { results: results, semDataCadastro: semDataCadastro };
+    return { results: results };
   }
 
   var CAMP_STATUS_LABEL = {
@@ -1473,14 +1472,6 @@
           return '<tr><td>' + nameWithCpfHtml(r.nome) + '</td><td>' + formatDateBR(r.aprovacao) + '</td><td>' + formatDateBR(r.prazo) + '</td><td>' + r.total + '</td><td>' + statusTxt + '</td></tr>';
         }).join('')
       : '<tr><td colspan="5" class="empty-hint">Nenhum entregador com data de aprovação no período (03–31/08) até agora.</td></tr>';
-
-    var warn = document.getElementById('campStartWarn');
-    if (data.semDataCadastro.length) {
-      warn.hidden = false;
-      warn.textContent = data.semDataCadastro.length + ' entregador(es) sem turno antes de 03/08, mas sem "Data de Aprovação" preenchida na aba Entregadores — não dá pra saber se entram no Start EntreGô: ' + data.semDataCadastro.join(', ') + '.';
-    } else {
-      warn.hidden = true;
-    }
   }
 
   // R$100 por semana: R$50 pros 30 primeiros a bater 40 entregas (pedidos)
@@ -1577,11 +1568,15 @@
     body.innerHTML = rows.map(function (r) {
       var cpfDigits = String(r.cpf || '').replace(/\D/g, '');
       while (cpfDigits.length < 11) cpfDigits = '0' + cpfDigits;
+      var jaEnviado = !!chatwootEnviosCpfs[cpfDigits];
+      var btnHtml = jaEnviado
+        ? '<button type="button" class="send-chatwoot-btn" data-cpf="' + cpfDigits + '" disabled>Enviado ✅</button>'
+        : '<button type="button" class="send-chatwoot-btn" data-cpf="' + cpfDigits + '">Enviar</button>';
       return '<tr>' +
         '<td>' + (r.nome || '') + '</td>' +
         '<td>' + (r.praca || '') + '</td>' +
         '<td>' + (r.aprovado_em || '') + '</td>' +
-        '<td><button type="button" class="send-chatwoot-btn" data-cpf="' + cpfDigits + '">Enviar</button></td>' +
+        '<td>' + btnHtml + '</td>' +
         '</tr>';
     }).join('');
     body.querySelectorAll('.send-chatwoot-btn').forEach(function (btn) {
@@ -1602,12 +1597,16 @@
       },
       body: JSON.stringify({ cpf: cpf }),
     })
-      .then(function (r) { return r.json(); })
+      .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
       .then(function (res) {
-        if (res && res.error) {
+        if (res.body && res.body.error) {
+          if (res.status === 409) {
+            btn.textContent = 'Enviado ✅';
+            return;
+          }
           btn.disabled = false;
           btn.textContent = 'Enviar';
-          alert('Erro ao enviar: ' + res.error);
+          alert('Erro ao enviar: ' + res.body.error);
           return;
         }
         btn.textContent = 'Enviado ✅';

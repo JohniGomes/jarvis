@@ -44,6 +44,18 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
+    // Trava servidor-side contra reenvio -- a aba Sem Corridas é
+    // sobrescrita todo dia pelo robô, então o "já enviei" não pode viver
+    // só no botão do navegador (reseta a cada atualização de página).
+    const { data: jaEnviado } = await supabase
+      .from('chatwoot_envios')
+      .select('cpf')
+      .eq('cpf', cpfDigits)
+      .maybeSingle();
+    if (jaEnviado) {
+      return jsonResponse({ error: 'Mensagem já enviada pra esse CPF antes.' }, 409);
+    }
+
     const { data: pessoa, error: dbError } = await supabase
       .from('sem_corridas')
       .select('nome, telefone')
@@ -57,20 +69,36 @@ Deno.serve(async (req: Request) => {
     const token = Deno.env.get('CHATWOOT_TOKEN');
     if (!token) return jsonResponse({ error: 'CHATWOOT_TOKEN não configurado nos secrets da função.' }, 500);
 
-    const result = await sendChatwootTemplate(pessoa.telefone, pessoa.nome, token);
+    const result = await sendChatwootTemplate(pessoa.telefone, pessoa.nome, cpfDigits, token);
+
+    // Só grava como enviado depois do Chatwoot confirmar -- se o envio
+    // falhar, o botão continua disponível pra tentar de novo.
+    await supabase.from('chatwoot_envios').upsert({ cpf: cpfDigits, enviado_em: new Date().toISOString() });
+
     return jsonResponse(result);
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }
 });
 
-async function sendChatwootTemplate(telefoneDigits: string, nomeCompleto: string, token: string) {
+function formatCpf(cpfDigits: string): string {
+  if (cpfDigits.length !== 11) return cpfDigits;
+  return `${cpfDigits.slice(0, 3)}.${cpfDigits.slice(3, 6)}.${cpfDigits.slice(6, 9)}-${cpfDigits.slice(9)}`;
+}
+
+async function sendChatwootTemplate(telefoneDigits: string, nomeCompleto: string, cpfDigits: string, token: string) {
   const headers = { api_access_token: token, 'Content-Type': 'application/json' };
   const base = `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}`;
+  // Nome + CPF na frente, pra identificar a conversa na lista do Chatwoot
+  // sem precisar abrir uma por uma (vários entregadores podem ter nomes
+  // parecidos).
+  const nomeComCpf = `${nomeCompleto} - ${formatCpf(cpfDigits)}`;
 
   let contactId = await findChatwootContactId(telefoneDigits, headers, base);
   if (!contactId) {
-    contactId = await createChatwootContact(telefoneDigits, nomeCompleto, headers, base);
+    contactId = await createChatwootContact(telefoneDigits, nomeComCpf, headers, base);
+  } else {
+    await updateChatwootContactName(contactId, nomeComCpf, headers, base);
   }
 
   const primeiroNome = (nomeCompleto || '').trim().split(/\s+/)[0] || nomeCompleto;
@@ -106,15 +134,30 @@ async function findChatwootContactId(telefoneDigits: string, headers: Record<str
   return json.payload?.[0]?.id ?? null;
 }
 
-async function createChatwootContact(telefoneDigits: string, nomeCompleto: string, headers: Record<string, string>, base: string) {
+async function createChatwootContact(telefoneDigits: string, nomeComCpf: string, headers: Record<string, string>, base: string) {
   const response = await fetch(`${base}/contacts`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ inbox_id: CHATWOOT_INBOX_ID, name: nomeCompleto, phone_number: `+${telefoneDigits}` }),
+    body: JSON.stringify({ inbox_id: CHATWOOT_INBOX_ID, name: nomeComCpf, phone_number: `+${telefoneDigits}` }),
   });
   if (!response.ok) {
     throw new Error(`Chatwoot (criar contato) respondeu ${response.status}: ${await response.text()}`);
   }
   const json = await response.json();
   return json.payload.contact.id;
+}
+
+async function updateChatwootContactName(contactId: number, nomeComCpf: string, headers: Record<string, string>, base: string) {
+  // Best-effort -- um contato já existente (de um envio anterior, ou de
+  // uma conversa que a pessoa iniciou) só tem o nome atualizado; se isso
+  // falhar por algum motivo, não trava o envio da mensagem.
+  try {
+    await fetch(`${base}/contacts/${contactId}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ name: nomeComCpf }),
+    });
+  } catch (_err) {
+    // ignora
+  }
 }

@@ -71,3 +71,18 @@ create table if not exists sem_corridas (
 alter table sem_corridas enable row level security;
 drop policy if exists "sem_corridas leitura publica" on sem_corridas;
 create policy "sem_corridas leitura publica" on sem_corridas for select using (true);
+
+-- ============================================================================
+-- chatwoot_envios: quem já recebeu a mensagem do template via o botão
+-- "Enviar" da aba Sem Corridas -- existe pra não deixar mandar a mesma
+-- mensagem de novo (a aba Sem Corridas é sobrescrita todo dia pelo robô,
+-- então esse controle não pode viver lá, senão reseta junto).
+-- ============================================================================
+create table if not exists chatwoot_envios (
+  cpf text primary key,
+  enviado_em timestamptz not null default now()
+);
+
+alter table chatwoot_envios enable row level security;
+drop policy if exists "chatwoot_envios leitura publica" on chatwoot_envios;
+create policy "chatwoot_envios leitura publica" on chatwoot_envios for select using (true);
