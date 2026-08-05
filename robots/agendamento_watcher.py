@@ -33,6 +33,7 @@ from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from robots.browser_launch import launch_browser
 from robots.franqueado_login import login as franqueado_login
 
 load_dotenv()
@@ -175,7 +176,7 @@ def main():
     url, headers = _supa_headers()
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = launch_browser(p.chromium)
         page = browser.new_page(accept_downloads=True)
 
         log("Login em franqueado.entregolog.com...")

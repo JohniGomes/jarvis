@@ -72,10 +72,15 @@ def login(page: Page):
 
 
 if __name__ == "__main__":
+    from dotenv import load_dotenv
     from playwright.sync_api import sync_playwright
 
+    from robots.browser_launch import launch_browser
+
+    load_dotenv()
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = launch_browser(p.chromium)
         page = browser.new_page()
         try:
             login(page)

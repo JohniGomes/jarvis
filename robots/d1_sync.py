@@ -14,6 +14,7 @@ import requests
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 
+from robots.browser_launch import launch_browser
 from robots.franqueado_login import login
 
 # No GitHub Actions as variáveis já vêm como Secrets reais -- load_dotenv()
@@ -157,7 +158,7 @@ def main():
     destino = "robots/bundle_download.zip"
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = launch_browser(p.chromium)
         page = browser.new_page(accept_downloads=True)
         try:
             log("Login em franqueado.entregolog.com...")
