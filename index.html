@@ -1568,6 +1568,12 @@
       body.innerHTML = '<tr><td colspan="4" class="empty-hint">Nenhum registro na aba "Sem Corridas" ainda.</td></tr>';
       return;
     }
+    // Mais recente primeiro.
+    rows = rows.slice().sort(function (a, b) {
+      var da = parseDateBR(a.aprovado_em), db = parseDateBR(b.aprovado_em);
+      if (!da || !db) return 0;
+      return db.getTime() - da.getTime();
+    });
     body.innerHTML = rows.map(function (r) {
       var cpfDigits = String(r.cpf || '').replace(/\D/g, '');
       while (cpfDigits.length < 11) cpfDigits = '0' + cpfDigits;
