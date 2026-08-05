@@ -1473,8 +1473,7 @@
   };
 
   function renderStartEntreGo(data) {
-    document.getElementById('campStartCount').textContent =
-      data.results.filter(function (r) { return r.status === 'ganhou'; }).length;
+    document.getElementById('campStartCount').textContent = data.results.length;
 
     var body = document.getElementById('campStartBody');
     body.innerHTML = data.results.length
