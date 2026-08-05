@@ -442,39 +442,50 @@
   }
 
   // O PostgREST do Supabase devolve no máximo 1000 linhas por chamada por
-  // padrão — com o D-1 já passando de 18 mil linhas, precisa paginar via
-  // cabeçalho Range. A 1ª página já diz o total (Content-Range), então as
-  // páginas restantes saem todas em paralelo em vez de uma de cada vez.
-  function supaFetchAll(table) {
+  // padrão — com o D-1 já passando de 18 mil linhas (e crescendo todo dia
+  // via o robô), precisa paginar via cabeçalho Range.
+  //
+  // Duas armadilhas reais encontradas testando contra produção:
+  // 1. "Prefer: count=exact" faz o Postgres contar a tabela inteira em toda
+  //    chamada -- isso sozinho levou 80+ segundos por página. Em vez de
+  //    pedir o total, só continua pedindo páginas até uma vir com menos
+  //    linhas que o tamanho pedido (sinal de que chegou ao fim).
+  // 2. Sem "order=" explícito, o Postgres não tem garantia de usar o índice
+  //    da chave primária pra paginar -- cai pra uma varredura sequencial
+  //    (10s por página em vez de ~3s). Por isso todo fetchPage manda
+  //    orderCol.
+  // A concorrência é limitada (poucas páginas de cada vez, não todas de
+  // uma vez) pra não sobrecarregar o banco do plano gratuito.
+  function supaFetchAll(table, orderCol) {
     var pageSize = 1000;
+    var concurrency = 4;
     function fetchPage(offset) {
-      return fetch(SUPABASE_URL + '/rest/v1/' + table + '?select=*', {
+      return fetch(SUPABASE_URL + '/rest/v1/' + table + '?select=*&order=' + orderCol, {
         headers: {
           apikey: SUPABASE_ANON_KEY,
           Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
           Range: offset + '-' + (offset + pageSize - 1),
-          // Sem isso o Postgres devolve "Content-Range: 0-999/*" (total
-          // desconhecido) em vez do total de verdade, e a paginação para
-          // depois da 1ª página achando que já pegou tudo.
-          Prefer: 'count=exact',
         },
       }).then(function (r) {
         if (!r.ok) throw new Error('Supabase (' + table + ') respondeu ' + r.status);
-        var contentRange = r.headers.get('content-range') || '';
-        var total = Number(contentRange.split('/')[1]) || 0;
-        return r.json().then(function (rows) { return { rows: rows, total: total }; });
+        return r.json();
       });
     }
-    return fetchPage(0).then(function (first) {
-      if (first.total <= first.rows.length) return first.rows;
-      var offsets = [];
-      for (var offset = first.rows.length; offset < first.total; offset += pageSize) offsets.push(offset);
-      return Promise.all(offsets.map(fetchPage)).then(function (results) {
-        var all = first.rows.slice();
-        results.forEach(function (res) { all = all.concat(res.rows); });
-        return all;
+    var all = [];
+    function loop(offset) {
+      var batchOffsets = [];
+      for (var i = 0; i < concurrency; i++) batchOffsets.push(offset + i * pageSize);
+      return Promise.all(batchOffsets.map(fetchPage)).then(function (results) {
+        var reachedEnd = false;
+        results.forEach(function (rows) {
+          all = all.concat(rows);
+          if (rows.length < pageSize) reachedEnd = true;
+        });
+        if (reachedEnd) return all;
+        return loop(offset + concurrency * pageSize);
       });
-    });
+    }
+    return loop(0);
   }
 
   // Datas vêm do Postgres em ISO (yyyy-mm-dd) -- o resto do painel já espera
@@ -487,9 +498,9 @@
 
   function loadDashboard() {
     Promise.all([
-      supaFetchAll('d1_rows'),
-      supaFetchAll('entregadores'),
-      supaFetchAll('sem_corridas'),
+      supaFetchAll('d1_rows', 'id.asc'),
+      supaFetchAll('entregadores', 'cpf.asc'),
+      supaFetchAll('sem_corridas', 'cpf.asc'),
     ])
       .then(function (results) {
         var d1Rows = results[0].map(function (r) {
