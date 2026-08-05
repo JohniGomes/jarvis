@@ -164,22 +164,28 @@ def upsert_supabase(linhas):
     log(f"d1_rows: {len(linhas)} linhas enviadas.")
 
 
-MAX_TENTATIVAS_LOGIN = 3
+MAX_TENTATIVAS_LOGIN = 4
 
 
-def _login_com_retry(page):
+def _login_com_retry(p):
     # Via proxy residencial saindo do GitHub Actions, a conexão às vezes
     # trava/cai no meio do fluxo de login (instabilidade de rede, não bug
-    # de timing) -- tenta de novo em vez de falhar direto na primeira.
+    # de timing) -- RECRIA o browser a cada tentativa (nova conexão TCP com
+    # o proxy) em vez de insistir na mesma conexão travada.
+    ultimo_erro = None
     for tentativa in range(1, MAX_TENTATIVAS_LOGIN + 1):
+        browser = launch_browser(p.chromium)
+        page = browser.new_page(accept_downloads=True)
         try:
             login(page)
-            return
+            return browser, page
         except Exception as e:
+            ultimo_erro = e
             log(f"Tentativa {tentativa}/{MAX_TENTATIVAS_LOGIN} de login falhou: {type(e).__name__}: {e}")
-            if tentativa == MAX_TENTATIVAS_LOGIN:
-                raise
-            time.sleep(5)
+            browser.close()
+            if tentativa < MAX_TENTATIVAS_LOGIN:
+                time.sleep(8)
+    raise ultimo_erro
 
 
 def main():
@@ -188,11 +194,9 @@ def main():
     destino = "robots/bundle_download.zip"
 
     with sync_playwright() as p:
-        browser = launch_browser(p.chromium)
-        page = browser.new_page(accept_downloads=True)
+        log("Login em franqueado.entregolog.com...")
+        browser, page = _login_com_retry(p)
         try:
-            log("Login em franqueado.entregolog.com...")
-            _login_com_retry(page)
             log(f"Gerando relatório Performance de {ontem}...")
             gerar_e_baixar(page, ontem, ontem, destino)
         except Exception:

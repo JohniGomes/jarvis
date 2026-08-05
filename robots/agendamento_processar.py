@@ -20,34 +20,41 @@ from robots.franqueado_login import login as franqueado_login
 
 load_dotenv()
 
-MAX_TENTATIVAS_LOGIN = 3
+MAX_TENTATIVAS_LOGIN = 4
 
 
-def _login_com_retry(page):
-    # A conexão via proxy residencial, saindo da rede do GitHub Actions, às
-    # vezes trava/cai no meio do fluxo (goto, formulário ou código) --
-    # instabilidade de rede, não um bug de timing. Tenta de novo em vez de
-    # falhar direto na primeira instabilidade.
+def _login_com_retry(p):
+    """Tenta logar, RECRIANDO o browser (nova conexão TCP com o proxy) a
+    cada tentativa -- reusar a mesma conexão travada nas tentativas
+    seguintes não ajuda em nada se o problema for aquela conexão/IP
+    específico estar ruim. Retorna (browser, page) já logados."""
+    ultimo_erro = None
     for tentativa in range(1, MAX_TENTATIVAS_LOGIN + 1):
+        browser = launch_browser(p.chromium)
+        page = browser.new_page(accept_downloads=True)
         try:
             franqueado_login(page)
-            return
+            return browser, page
         except Exception as e:
+            ultimo_erro = e
             log(f"Tentativa {tentativa}/{MAX_TENTATIVAS_LOGIN} de login falhou: {type(e).__name__}: {e}")
-            if tentativa == MAX_TENTATIVAS_LOGIN:
-                raise
-            time.sleep(5)
+            try:
+                page.screenshot(path=f"robots/debug_agendamento_watcher_tentativa{tentativa}.png", full_page=True)
+            except Exception:
+                pass
+            browser.close()
+            if tentativa < MAX_TENTATIVAS_LOGIN:
+                time.sleep(8)
+    raise ultimo_erro
 
 
 def main():
     url, headers = _supa_headers()
 
     with sync_playwright() as p:
-        browser = launch_browser(p.chromium)
-        page = browser.new_page(accept_downloads=True)
+        log("Login em franqueado.entregolog.com...")
+        browser, page = _login_com_retry(p)
         try:
-            log("Login em franqueado.entregolog.com...")
-            _login_com_retry(page)
             teve_pendente = processar_ciclo(page, url, headers)
             if not teve_pendente:
                 log("Nenhum pendente encontrado (webhook disparou à toa ou já foi processado).")
