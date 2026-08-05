@@ -72,7 +72,7 @@ def gerar_e_baixar(page, data_inicio, data_fim, destino):
     _selecionar_dia_calendario(page, "Data início", data_inicio)
     _selecionar_dia_calendario(page, "Data fim", data_fim)
 
-    with page.expect_download(timeout=60000) as download_info:
+    with page.expect_download(timeout=90000) as download_info:
         page.get_by_role("button", name=re.compile("Gerar Relat.rio", re.I)).click()
     download_info.value.save_as(destino)
 
@@ -204,7 +204,13 @@ def main():
             log(f"Gerando relatório Performance de {ontem}...")
             gerar_e_baixar(page, ontem, ontem, destino)
         except Exception:
-            page.screenshot(path="robots/debug_d1_sync.png", full_page=True)
+            # Se a página ficou num estado travado (ex.: conexão caiu no
+            # meio do download), até o screenshot pode travar -- não deixa
+            # isso mascarar o erro original com timeout=5s e log explícito.
+            try:
+                page.screenshot(path="robots/debug_d1_sync.png", full_page=True, timeout=5000)
+            except Exception as screenshot_erro:
+                log(f"(não consegui tirar screenshot de erro: {screenshot_erro})")
             raise
         finally:
             browser.close()
