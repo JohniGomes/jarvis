@@ -453,6 +453,10 @@
           apikey: SUPABASE_ANON_KEY,
           Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
           Range: offset + '-' + (offset + pageSize - 1),
+          // Sem isso o Postgres devolve "Content-Range: 0-999/*" (total
+          // desconhecido) em vez do total de verdade, e a paginação para
+          // depois da 1ª página achando que já pegou tudo.
+          Prefer: 'count=exact',
         },
       }).then(function (r) {
         if (!r.ok) throw new Error('Supabase (' + table + ') respondeu ' + r.status);
