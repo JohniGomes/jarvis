@@ -37,9 +37,20 @@ def _selecionar_dia_calendario(page, label, data_alvo):
     page.wait_for_timeout(300)
 
 
+def _wait_networkidle_soft(page):
+    # Através do proxy residencial, "networkidle" às vezes nunca chega
+    # (analytics/PerimeterX mandando requisição em loop de fundo) -- só
+    # tenta esperar, sem travar o fluxo se estourar o tempo; os cliques
+    # seguintes já esperam o elemento ficar visível/clicável sozinhos.
+    try:
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except Exception:
+        pass
+
+
 def gerar_e_baixar(page, data_inicio, data_fim, destino):
     page.goto("https://franqueado.entregolog.com")
-    page.wait_for_load_state("networkidle", timeout=30000)
+    _wait_networkidle_soft(page)
 
     expandir = page.get_by_role("button", name="Expandir")
     if expandir.count() > 0:
@@ -48,7 +59,7 @@ def gerar_e_baixar(page, data_inicio, data_fim, destino):
     page.get_by_text("Operador logístico", exact=False).first.click()
     page.wait_for_timeout(500)
     page.get_by_text("Relatórios", exact=False).first.click()
-    page.wait_for_load_state("networkidle", timeout=30000)
+    _wait_networkidle_soft(page)
 
     page.get_by_text("Selecione", exact=True).first.click()
     page.get_by_role("option", name=re.compile(RELATORIO_TIPO, re.I)).click()

@@ -25,8 +25,11 @@ def login(page: Page):
     email = os.environ["FRANQUEADO_EMAIL"]
     senha = os.environ["FRANQUEADO_PASSWORD"]
 
+    # "networkidle" nunca chega através do proxy residencial -- scripts de
+    # analytics/PerimeterX ficam mandando requisição em loop de fundo, e a
+    # latência extra do proxy nunca deixa a rede "quieta" a tempo. Espera só
+    # o campo de e-mail aparecer, que é o que realmente importa aqui.
     page.goto(BASE_URL)
-    page.wait_for_load_state("networkidle", timeout=30000)
 
     # E-mail e senha aparecem juntos no mesmo formulário (diferente do fluxo
     # em duas telas que a automação de Gestor de Escalas assume pra outra
@@ -35,7 +38,7 @@ def login(page: Page):
     campo_email = page.get_by_label("E-mail")
     if campo_email.count() == 0:
         campo_email = page.get_by_placeholder(re.compile("e-mail", re.I))
-    campo_email.first.wait_for(timeout=15000)
+    campo_email.first.wait_for(timeout=30000)
     campo_email.first.fill(email)
     _clicar_continuar(page)
 
@@ -45,14 +48,18 @@ def login(page: Page):
     campo_senha.first.wait_for(timeout=15000)
     campo_senha.first.fill(senha)
     _clicar_continuar(page)
-    page.wait_for_timeout(1500)
 
     # Um modal "Código enviado" aparece por cima do formulário e precisa ser
-    # fechado antes do campo de código ficar clicável.
+    # fechado antes do campo de código ficar clicável -- com o proxy
+    # residencial (latência maior), o modal pode demorar bem mais que os
+    # 1500ms fixos de antes pra aparecer, então espera de verdade por ele
+    # em vez de só checar depois de um tempo fixo.
     botao_ok = page.get_by_role("button", name=re.compile("OK, entendi", re.I))
-    if botao_ok.count() > 0:
+    try:
+        botao_ok.first.wait_for(timeout=10000)
         botao_ok.first.click()
-        page.wait_for_timeout(500)
+    except Exception:
+        pass  # modal pode não aparecer sempre -- segue sem ele
 
     # Um código de 6 dígitos é enviado por e-mail (naoresponda@entregolog.com,
     # assunto "Código de acesso") -- lê a caixa via IMAP e completa sozinho.
@@ -66,7 +73,12 @@ def login(page: Page):
     _clicar_continuar(page)
     page.wait_for_timeout(3000)
 
-    page.wait_for_load_state("networkidle", timeout=30000)
+    # Mesmo motivo do goto() acima -- não depende de networkidle, só do
+    # resultado final (URL mudou pra fora do login = deu certo).
+    try:
+        page.wait_for_url(lambda url: "login" not in url.lower(), timeout=20000)
+    except Exception:
+        pass
     if "login" in page.url.lower():
         raise RuntimeError("Ainda na tela de login depois do código -- confira credenciais/código.")
 
