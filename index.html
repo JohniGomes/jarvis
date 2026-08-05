@@ -803,12 +803,20 @@
     (posVendasRows || []).forEach(function (r) {
       var key = normName(r.pessoa_entregadora);
       if (!key) return;
-      out[key] = {
+      var novo = {
         nome: r.pessoa_entregadora ? String(r.pessoa_entregadora).trim() : '',
         phone: cleanPhoneDigits(r.telefone),
         cpf: r.cpf ? String(r.cpf).trim() : '',
         dataAprovacao: r.data_aprovacao ? String(r.data_aprovacao).trim() : '',
       };
+      // O roster tem registros duplicados antigos pro mesmo nome (dado sujo
+      // de uma migração anterior, com CPF inválido e sem data de aprovação)
+      // -- nunca deixa um registro sem data apagar um que já tinha data,
+      // senão a pessoa some da campanha Start EntreGô dependendo da ordem
+      // de chegada.
+      var existente = out[key];
+      if (existente && existente.dataAprovacao && !novo.dataAprovacao) return;
+      out[key] = novo;
     });
     return out;
   }
