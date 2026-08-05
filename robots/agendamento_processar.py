@@ -8,6 +8,7 @@ Uso: python -m robots.agendamento_processar
 """
 import os
 import sys
+import time
 
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
@@ -19,6 +20,24 @@ from robots.franqueado_login import login as franqueado_login
 
 load_dotenv()
 
+MAX_TENTATIVAS_LOGIN = 3
+
+
+def _login_com_retry(page):
+    # A conexão via proxy residencial, saindo da rede do GitHub Actions, às
+    # vezes trava/cai no meio do fluxo (goto, formulário ou código) --
+    # instabilidade de rede, não um bug de timing. Tenta de novo em vez de
+    # falhar direto na primeira instabilidade.
+    for tentativa in range(1, MAX_TENTATIVAS_LOGIN + 1):
+        try:
+            franqueado_login(page)
+            return
+        except Exception as e:
+            log(f"Tentativa {tentativa}/{MAX_TENTATIVAS_LOGIN} de login falhou: {type(e).__name__}: {e}")
+            if tentativa == MAX_TENTATIVAS_LOGIN:
+                raise
+            time.sleep(5)
+
 
 def main():
     url, headers = _supa_headers()
@@ -28,7 +47,7 @@ def main():
         page = browser.new_page(accept_downloads=True)
         try:
             log("Login em franqueado.entregolog.com...")
-            franqueado_login(page)
+            _login_com_retry(page)
             teve_pendente = processar_ciclo(page, url, headers)
             if not teve_pendente:
                 log("Nenhum pendente encontrado (webhook disparou à toa ou já foi processado).")

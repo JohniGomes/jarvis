@@ -7,6 +7,7 @@ import csv
 import io
 import os
 import re
+import time
 import zipfile
 from datetime import date, timedelta
 
@@ -163,6 +164,24 @@ def upsert_supabase(linhas):
     log(f"d1_rows: {len(linhas)} linhas enviadas.")
 
 
+MAX_TENTATIVAS_LOGIN = 3
+
+
+def _login_com_retry(page):
+    # Via proxy residencial saindo do GitHub Actions, a conexão às vezes
+    # trava/cai no meio do fluxo de login (instabilidade de rede, não bug
+    # de timing) -- tenta de novo em vez de falhar direto na primeira.
+    for tentativa in range(1, MAX_TENTATIVAS_LOGIN + 1):
+        try:
+            login(page)
+            return
+        except Exception as e:
+            log(f"Tentativa {tentativa}/{MAX_TENTATIVAS_LOGIN} de login falhou: {type(e).__name__}: {e}")
+            if tentativa == MAX_TENTATIVAS_LOGIN:
+                raise
+            time.sleep(5)
+
+
 def main():
     hoje = date.today()
     ontem = hoje - timedelta(days=1)
@@ -173,7 +192,7 @@ def main():
         page = browser.new_page(accept_downloads=True)
         try:
             log("Login em franqueado.entregolog.com...")
-            login(page)
+            _login_com_retry(page)
             log(f"Gerando relatório Performance de {ontem}...")
             gerar_e_baixar(page, ontem, ontem, destino)
         except Exception:
