@@ -243,8 +243,12 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
   if (estado?.estado === 'aguardando_cpf') {
     const entregador = await entregadorPorCpf(supabase, msg.content);
     if (!entregador) {
-      await responder(chatwootToken, conversationId, 'Não consegui identificar esse CPF. Pode conferir e mandar só os números?');
-      return { acao: 'aguardando_cpf_invalido' };
+      // Não fica repetindo "não consegui identificar" -- pedido do usuário
+      // 06/08/2026: silêncio total quando não dá pra confirmar, sem
+      // repetir pergunta. Limpa o estado pra não continuar interceptando
+      // as próximas mensagens dessa conversa (atendimento humano assume).
+      await limparEstado(supabase, conversationId);
+      return { acao: 'aguardando_cpf_invalido_sem_resposta' };
     }
     await limparEstado(supabase, conversationId);
     return await executarEResponder(supabase, chatwootToken, conversationId, entregador.cpf, estado.praca_codigo);
@@ -254,8 +258,8 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
   if (estado?.estado === 'aguardando_praca') {
     const classificacao = await classificarPraca(msg.content);
     if (!classificacao?.praca_codigo) {
-      await responder(chatwootToken, conversationId, 'Não entendi -- pra qual praça você quer ir? (ex: Pinheiros, Mooca, Livre...)');
-      return { acao: 'aguardando_praca_nao_identificada' };
+      await limparEstado(supabase, conversationId);
+      return { acao: 'aguardando_praca_nao_identificada_sem_resposta' };
     }
     const entregador = await identificarEntregador(supabase, telefone, msg?.sender?.name);
     if (entregador) {
