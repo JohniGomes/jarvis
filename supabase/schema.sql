@@ -146,3 +146,15 @@ create table if not exists chatwoot_mensagens_processadas (
   acao text,
   processado_em timestamptz not null default now()
 );
+
+-- ============================================================================
+-- chatwoot_conversas_estado: estado da conversa do agente de troca de praça
+-- (ex.: "perguntei qual praça, esperando resposta"). Sem isso o agente não
+-- consegue ter ida-e-volta -- cada mensagem seria tratada isolada.
+-- ============================================================================
+create table if not exists chatwoot_conversas_estado (
+  conversation_id bigint primary key,
+  estado text not null check (estado in ('aguardando_praca', 'aguardando_cpf')),
+  praca_codigo text,
+  updated_at timestamptz not null default now()
+);

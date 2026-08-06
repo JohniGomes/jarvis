@@ -1,15 +1,17 @@
-// Poller de troca de praça -- chamado a cada minuto pelo pg_cron (ver
-// supabase/chatwoot_poll_cron.sql). Não usamos webhook do Chatwoot porque
-// o token que temos é de Agente, não Administrador (só admin consegue
-// configurar webhooks pela UI/API do Chatwoot).
+// Agente conversacional de troca de praça -- chamado a cada minuto pelo
+// pg_cron (ver supabase/chatwoot_poll_cron.sql), só dentro do horário de
+// operação (06:00-15:30, ver dentroDoHorarioDeOperacao). Não usamos webhook
+// do Chatwoot porque o token disponível é de Agente, não Administrador.
 //
-// Em vez disso: varre as conversas abertas, acha mensagens novas de
-// contato (entregador) que ainda não estão em chatwoot_mensagens_processadas,
-// usa a Claude API pra identificar se é um pedido de troca de praça e qual
-// praça, e se tiver confiança executa a troca direto na API do parceiro
-// (via o painel automaturno) e responde na conversa sozinho. Sem confiança
-// (CPF não encontrado, praça ambígua, não é pedido de troca), marca como
-// processada sem agir -- fica pro atendimento humano normal.
+// Fluxo (com estado por conversa em chatwoot_conversas_estado, pra suportar
+// ida-e-volta em vez de exigir tudo numa mensagem só):
+//   1. Pedido claro (praça + identidade resolvida por telefone) -> executa
+//      e responde "Feito." (ou erro) direto.
+//   2. Pedido de troca sem praça clara ("quero trocar", "me agenda aí") ->
+//      pergunta "Qual praça?" e guarda estado aguardando_praca.
+//   3. Praça identificada mas telefone não bate com nenhum entregador
+//      cadastrado -> pergunta "Qual seu CPF?" e guarda estado aguardando_cpf.
+//   4. Mensagem que não é pedido de troca -> ignora, sem responder.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -25,6 +27,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const CHATWOOT_BASE_URL = 'https://chatwoot.rayo-ia.com.br';
 const CHATWOOT_ACCOUNT_ID = 2;
+const MENSAGENS_DE_CONTEXTO = 5;
 
 // PRAÇAS precisa ficar em sincronia com as options do <select> em
 // https://api-automaturno.rly9ea.easypanel.host/admin/<token> -- se o
@@ -44,10 +47,9 @@ const PRACAS: Record<string, string> = {
   VILA_JAGUARA: 'Vila Jaguara',
 };
 
-// Só fica ativo no horário do operador atual (06:00-15:30, horário de
-// Brasília) -- depois desse horário outra pessoa assume o atendimento
-// manualmente. Ajuste aqui se o horário mudar.
-const HORARIO_INICIO = 6 * 60;   // 06:00 em minutos desde meia-noite
+// Só fica ativo no horário do operador atual -- depois desse horário outra
+// pessoa assume o atendimento manualmente. Ajuste aqui se o horário mudar.
+const HORARIO_INICIO = 6 * 60; // 06:00 em minutos desde meia-noite
 const HORARIO_FIM = 15 * 60 + 30; // 15:30
 
 function dentroDoHorarioDeOperacao(): boolean {
@@ -81,7 +83,9 @@ Deno.serve(async (req: Request) => {
 
     for (const conv of conversas) {
       const msg = conv.last_non_activity_message;
-      if (!msg || msg.sender_type !== 'Contact' && msg?.sender?.type !== 'contact') continue;
+      if (!msg) continue;
+      const senderType = msg.sender_type || msg.sender?.type;
+      if (senderType !== 'Contact' && senderType !== 'contact') continue;
       if (!msg.content?.trim()) continue;
 
       const { data: jaProcessada } = await supabase
@@ -122,48 +126,170 @@ async function listarConversasAbertas(token: string) {
   return conversas;
 }
 
-async function processarMensagem(supabase: any, chatwootToken: string, conversationId: number, msg: any) {
-  const telefone = msg?.sender?.phone_number || msg?.conversation?.contact_inbox?.source_id;
-  if (!telefone) return { acao: 'ignorado_sem_telefone' };
+async function ultimasMensagens(token: string, conversationId: number, limite: number) {
+  const base = `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}`;
+  const resp = await fetch(`${base}/conversations/${conversationId}/messages`, {
+    headers: { api_access_token: token },
+  });
+  if (!resp.ok) throw new Error(`Chatwoot (mensagens) respondeu ${resp.status}: ${await resp.text()}`);
+  const payload = (await resp.json()).payload || [];
+  const relevantes = payload
+    .filter((m: any) => m.content?.trim() && !m.private)
+    .slice(-limite);
+  return relevantes.map((m: any) => {
+    const tipo = (m.sender?.type === 'contact' || m.sender_type === 'Contact') ? 'entregador' : 'atendente';
+    return `${tipo}: ${m.content.trim()}`;
+  });
+}
 
+async function entregadorPorTelefone(supabase: any, telefone: string | undefined | null) {
+  if (!telefone) return null;
   const telefoneDigits = String(telefone).replace(/\D/g, '');
-  const { data: entregador } = await supabase
+  const { data } = await supabase
     .from('entregadores')
     .select('cpf, nome')
     .eq('telefone', telefoneDigits)
     .maybeSingle();
+  return data;
+}
 
-  if (!entregador) return { acao: 'ignorado_cpf_nao_encontrado' };
+async function entregadorPorCpf(supabase: any, cpfTexto: string) {
+  const cpfDigits = cpfTexto.replace(/\D/g, '');
+  if (cpfDigits.length !== 11) return null;
+  const { data } = await supabase
+    .from('entregadores')
+    .select('cpf, nome')
+    .eq('cpf', cpfDigits)
+    .maybeSingle();
+  return data;
+}
 
-  const classificacao = await classificarPedido(msg.content);
-  if (!classificacao || !classificacao.praca_codigo || !(classificacao.praca_codigo in PRACAS)) {
+async function processarMensagem(supabase: any, chatwootToken: string, conversationId: number, msg: any) {
+  const { data: estado } = await supabase
+    .from('chatwoot_conversas_estado')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .maybeSingle();
+
+  const telefone = msg?.sender?.phone_number || msg?.conversation?.contact_inbox?.source_id;
+
+  // --- 1. Já estávamos esperando o CPF (praça já sabida, telefone não bateu) ---
+  if (estado?.estado === 'aguardando_cpf') {
+    const entregador = await entregadorPorCpf(supabase, msg.content);
+    if (!entregador) {
+      await responder(chatwootToken, conversationId, 'Não consegui identificar esse CPF. Pode conferir e mandar só os números?');
+      return { acao: 'aguardando_cpf_invalido' };
+    }
+    await limparEstado(supabase, conversationId);
+    return await executarEResponder(supabase, chatwootToken, conversationId, entregador.cpf, estado.praca_codigo);
+  }
+
+  // --- 2. Já estávamos esperando a praça ---
+  if (estado?.estado === 'aguardando_praca') {
+    const classificacao = await classificarPraca(msg.content);
+    if (!classificacao?.praca_codigo) {
+      await responder(chatwootToken, conversationId, 'Não entendi -- pra qual praça você quer ir? (ex: Pinheiros, Mooca, Livre...)');
+      return { acao: 'aguardando_praca_nao_identificada' };
+    }
+    const entregador = await entregadorPorTelefone(supabase, telefone);
+    if (entregador) {
+      await limparEstado(supabase, conversationId);
+      return await executarEResponder(supabase, chatwootToken, conversationId, entregador.cpf, classificacao.praca_codigo);
+    }
+    await definirEstado(supabase, conversationId, 'aguardando_cpf', classificacao.praca_codigo);
+    await responder(chatwootToken, conversationId, 'Qual seu CPF?');
+    return { acao: 'aguardando_cpf_iniciado', praca: classificacao.praca_codigo };
+  }
+
+  // --- 3. Mensagem nova, sem estado -- classifica do zero com contexto ---
+  const contexto = await ultimasMensagens(chatwootToken, conversationId, MENSAGENS_DE_CONTEXTO);
+  const classificacao = await classificarPedidoCompleto(contexto);
+  if (!classificacao?.eh_pedido_troca) {
     return { acao: 'ignorado_nao_e_troca_praca' };
   }
 
-  const resultado = await executarTroca(entregador.cpf, classificacao.praca_codigo);
-  const mensagemResposta = formatarResposta(resultado, classificacao.praca_codigo);
-  await enviarMensagemChatwoot(chatwootToken, conversationId, mensagemResposta);
+  if (!classificacao.praca_codigo) {
+    await definirEstado(supabase, conversationId, 'aguardando_praca', null);
+    await responder(chatwootToken, conversationId, 'Qual praça?');
+    return { acao: 'aguardando_praca_iniciado' };
+  }
 
-  return { acao: 'troca_executada', praca: classificacao.praca_codigo, resultado };
+  const entregador = await entregadorPorTelefone(supabase, telefone);
+  if (!entregador) {
+    await definirEstado(supabase, conversationId, 'aguardando_cpf', classificacao.praca_codigo);
+    await responder(chatwootToken, conversationId, 'Qual seu CPF?');
+    return { acao: 'aguardando_cpf_iniciado', praca: classificacao.praca_codigo };
+  }
+
+  return await executarEResponder(supabase, chatwootToken, conversationId, entregador.cpf, classificacao.praca_codigo);
 }
 
-async function classificarPedido(mensagem: string): Promise<{ praca_codigo: string | null } | null> {
-  const apiKey = Deno.env.get('CLAUDE_API_KEY');
-  if (!apiKey) throw new Error('CLAUDE_API_KEY não configurada.');
+async function definirEstado(supabase: any, conversationId: number, estado: string, pracaCodigo: string | null) {
+  await supabase.from('chatwoot_conversas_estado').upsert({
+    conversation_id: conversationId,
+    estado,
+    praca_codigo: pracaCodigo,
+    updated_at: new Date().toISOString(),
+  });
+}
 
+async function limparEstado(supabase: any, conversationId: number) {
+  await supabase.from('chatwoot_conversas_estado').delete().eq('conversation_id', conversationId);
+}
+
+async function executarEResponder(supabase: any, chatwootToken: string, conversationId: number, cpf: string, pracaCodigo: string) {
+  const resultado = await executarTroca(cpf, pracaCodigo);
+  const mensagemResposta = formatarResposta(resultado);
+  await responder(chatwootToken, conversationId, mensagemResposta);
+  return { acao: 'troca_executada', praca: pracaCodigo, resultado };
+}
+
+// classificarPedidoCompleto: primeira mensagem da conversa (sem estado ainda)
+// -- precisa decidir SE é pedido de troca E, se for, qual praça (pode não
+// vir junto, tipo "me agenda aí" sozinho).
+async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedido_troca: boolean; praca_codigo: string | null } | null> {
   const listaPracas = Object.entries(PRACAS).map(([cod, nome]) => `${cod} = "${nome}"`).join('\n');
   const prompt = [
-    'Você identifica se uma mensagem de WhatsApp de um entregador é um pedido claro de TROCA DE PRAÇA',
-    '(mudar a região/área onde ele trabalha). Praças válidas:',
+    'Você identifica se um entregador está pedindo TROCA/ALOCAÇÃO DE PRAÇA (mudar a região/área',
+    'onde ele trabalha -- sinônimos comuns: "trocar de praça", "me agenda", "me aloca", "me coloca em").',
+    'Praças válidas:',
     listaPracas,
     '',
-    'Responda APENAS um JSON válido, sem markdown, no formato:',
-    '{"praca_codigo": "CODIGO_EXATO_DA_LISTA"}',
-    'Se a mensagem não for um pedido de troca de praça, ou a praça desejada não estiver clara/não',
-    'bater com nenhuma da lista, responda {"praca_codigo": null}.',
+    'Você recebe as últimas mensagens da conversa (mais recente por último). Responda APENAS um JSON',
+    'válido, sem markdown, no formato:',
+    '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null}',
     '',
-    `Mensagem do entregador: "${mensagem}"`,
+    'praca_codigo só deve vir preenchido se a praça desejada estiver clara e bater com a lista.',
+    'Se não for pedido de troca, eh_pedido_troca deve ser false.',
+    '',
+    'Conversa:',
+    mensagens.join('\n'),
   ].join('\n');
+
+  return await chamarClaude(prompt);
+}
+
+// classificarPraca: já sabemos que é pedido de troca (estado aguardando_praca)
+// e essa mensagem é a resposta à pergunta "qual praça?" -- só extrai a praça.
+async function classificarPraca(mensagem: string): Promise<{ praca_codigo: string | null } | null> {
+  const listaPracas = Object.entries(PRACAS).map(([cod, nome]) => `${cod} = "${nome}"`).join('\n');
+  const prompt = [
+    'Um entregador pediu troca de praça e foi perguntado "Qual praça?". Ele respondeu a mensagem',
+    'abaixo. Praças válidas:',
+    listaPracas,
+    '',
+    'Responda APENAS um JSON válido, sem markdown: {"praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null}',
+    '(null se a resposta não identificar nenhuma praça da lista com clareza).',
+    '',
+    `Resposta do entregador: "${mensagem}"`,
+  ].join('\n');
+
+  return await chamarClaude(prompt);
+}
+
+async function chamarClaude(prompt: string): Promise<any> {
+  const apiKey = Deno.env.get('CLAUDE_API_KEY');
+  if (!apiKey) throw new Error('CLAUDE_API_KEY não configurada.');
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -174,7 +300,7 @@ async function classificarPedido(mensagem: string): Promise<{ praca_codigo: stri
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 100,
+      max_tokens: 150,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
@@ -201,8 +327,7 @@ async function executarTroca(cpf: string, pracaCodigo: string) {
   return dados; // { status_parceiro, corpo_parceiro: { success, action, subPraca, ... } }
 }
 
-function formatarResposta(resultado: any, pracaCodigo: string): string {
-  const nomePraca = PRACAS[pracaCodigo];
+function formatarResposta(resultado: any): string {
   const corpo = resultado?.corpo_parceiro;
   const statusOk = resultado?.status_parceiro >= 200 && resultado?.status_parceiro < 300 && corpo?.success !== false;
 
@@ -210,12 +335,12 @@ function formatarResposta(resultado: any, pracaCodigo: string): string {
     return 'Não consegui confirmar a troca agora -- o sistema não fez nenhuma alteração. Pode tentar de novo em instantes ou aguardar que alguém da equipe confira.';
   }
   if (statusOk) {
-    return `Pronto! Troca pra ${nomePraca} feita com sucesso. ✅`;
+    return 'Feito.';
   }
-  return `Não consegui fazer a troca pra ${nomePraca} agora -- vou pedir pra alguém da equipe verificar e te retornar.`;
+  return 'Não consegui fazer a troca agora -- vou pedir pra alguém da equipe verificar e te retornar.';
 }
 
-async function enviarMensagemChatwoot(token: string, conversationId: number, content: string) {
+async function responder(token: string, conversationId: number, content: string) {
   const base = `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}`;
   const response = await fetch(`${base}/conversations/${conversationId}/messages`, {
     method: 'POST',
