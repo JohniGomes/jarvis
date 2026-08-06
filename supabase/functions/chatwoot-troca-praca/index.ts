@@ -29,7 +29,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const CHATWOOT_BASE_URL = 'https://chatwoot.rayo-ia.com.br';
 const CHATWOOT_ACCOUNT_ID = 2;
-const MENSAGENS_DE_CONTEXTO = 5;
+const MENSAGENS_DE_CONTEXTO = 12; // pedidos reais vistos hoje (06/08) ficaram enterrados sob mensagens soltas ("Oii", "Porfavor") -- 5 era pouco
 
 // PRAÇAS precisa ficar em sincronia com as options do <select> em
 // https://api-automaturno.rly9ea.easypanel.host/admin/<token> -- se o
@@ -317,6 +317,11 @@ async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedi
     '     "pode me alocar em pinheiros?" -> praca_codigo: "PINHEIROS"',
     '     "será q consegue me colocar disponível agora na praça?" -> praca_codigo: null',
     '     "consegue me colocar na mooca?" -> praca_codigo: "MOOCA"',
+    '     "Livre" (mensagem que é só o nome de uma praça válida, sozinho, sem mais nada) ->',
+    '       eh_pedido_troca: true, praca_codigo: "LIVRE" -- é assim que muita gente pede, direto',
+    '     Se uma praça válida foi mencionada mais atrás na conversa e depois só vieram mensagens',
+    '     tipo "Oii", "Porfavor", "?" (cutucando, sem resposta ainda) -- ainda conta como pedido',
+    '     daquela praça, mesmo a última mensagem sendo só o cutucão.',
     '',
     '2) Uma das categorias de resposta pronta abaixo (campo categoria):',
     listaCategorias,
