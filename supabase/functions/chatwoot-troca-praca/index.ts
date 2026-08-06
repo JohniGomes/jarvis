@@ -311,8 +311,11 @@ async function limparEstado(supabase: any, conversationId: number) {
 async function executarEResponder(supabase: any, chatwootToken: string, conversationId: number, cpf: string, pracaCodigo: string) {
   const resultado = await executarTroca(cpf, pracaCodigo);
   const mensagemResposta = formatarResposta(resultado);
-  await responder(chatwootToken, conversationId, mensagemResposta);
-  return { acao: 'troca_executada', praca: pracaCodigo, resultado };
+  if (mensagemResposta) {
+    await responder(chatwootToken, conversationId, mensagemResposta);
+  }
+  const sucesso = mensagemResposta !== null;
+  return { acao: sucesso ? 'troca_executada' : 'troca_falhou_sem_resposta', praca: pracaCodigo, resultado };
 }
 
 // classificarPedidoCompleto: primeira mensagem da conversa (sem estado ainda)
@@ -427,17 +430,21 @@ async function executarTroca(cpf: string, pracaCodigo: string) {
   return dados; // { status_parceiro, corpo_parceiro: { success, action, subPraca, ... } }
 }
 
-function formatarResposta(resultado: any): string {
+// Retorna null quando não deu certo (noop ou erro) -- nesse caso não
+// responde nada pro entregador, fica só registrado (chatwoot_mensagens_processadas)
+// pra quem está no atendimento revisar manualmente. Pedido do usuário
+// 06/08/2026: falha silenciosa pro entregador, não silenciosa pro time.
+function formatarResposta(resultado: any): string | null {
   const corpo = resultado?.corpo_parceiro;
   const statusOk = resultado?.status_parceiro >= 200 && resultado?.status_parceiro < 300 && corpo?.success !== false;
 
   if (statusOk && corpo?.action === 'noop') {
-    return 'Não consegui confirmar a troca agora -- o sistema não fez nenhuma alteração. Pode tentar de novo em instantes ou aguardar que alguém da equipe confira.';
+    return null;
   }
   if (statusOk) {
     return 'Feito.';
   }
-  return 'Não consegui fazer a troca agora -- vou pedir pra alguém da equipe verificar e te retornar.';
+  return null;
 }
 
 async function responder(token: string, conversationId: number, content: string) {
