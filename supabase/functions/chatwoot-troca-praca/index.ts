@@ -275,8 +275,20 @@ async function executarEResponder(supabase: any, chatwootToken: string, conversa
 async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedido_troca: boolean; praca_codigo: string | null } | null> {
   const listaPracas = Object.entries(PRACAS).map(([cod, nome]) => `${cod} = "${nome}"`).join('\n');
   const prompt = [
-    'Você identifica se um entregador está pedindo TROCA/ALOCAÇÃO DE PRAÇA (mudar a região/área',
-    'onde ele trabalha -- sinônimos comuns: "trocar de praça", "me agenda", "me aloca", "me coloca em").',
+    'Você identifica se um entregador está pedindo TROCA/ALOCAÇÃO DE PRAÇA (mudar ou definir a',
+    'região/área onde ele vai trabalhar). Trate como pedido de praça QUALQUER mensagem pedindo pra',
+    'ser colocado/alocado/disponibilizado pra trabalhar numa região agora, mesmo sem citar a palavra',
+    '"praça" -- é assim que a maioria dos entregadores pede. Exemplos que SÃO pedido de troca',
+    '(eh_pedido_troca: true):',
+    '  "quero trocar de praça" -> praca_codigo: null (não disse qual)',
+    '  "me agenda aí" -> praca_codigo: null',
+    '  "pode me alocar em pinheiros?" -> praca_codigo: "PINHEIROS"',
+    '  "será q consegue me colocar disponível agora na praça?" -> praca_codigo: null (pediu praça',
+    '    sem especificar qual -- ainda conta como pedido, só falta a praça)',
+    '  "consegue me colocar na mooca?" -> praca_codigo: "MOOCA"',
+    'Exemplos que NÃO são pedido de troca (eh_pedido_troca: false): perguntas sobre pagamento, nota',
+    'fiscal, reclamações, "bom dia"/agradecimentos sozinhos, dúvidas gerais sem pedir alocação.',
+    '',
     'Praças válidas:',
     listaPracas,
     '',
@@ -284,8 +296,7 @@ async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedi
     'válido, sem markdown, no formato:',
     '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null}',
     '',
-    'praca_codigo só deve vir preenchido se a praça desejada estiver clara e bater com a lista.',
-    'Se não for pedido de troca, eh_pedido_troca deve ser false.',
+    'praca_codigo só deve vir preenchido se uma praça específica da lista foi mencionada com clareza.',
     '',
     'Conversa:',
     mensagens.join('\n'),
@@ -333,10 +344,18 @@ async function chamarClaude(prompt: string): Promise<any> {
   const json = await response.json();
   if (!response.ok) throw new Error(`Claude API (${response.status}): ${json.error?.message || JSON.stringify(json)}`);
 
-  const texto = json.content?.[0]?.text?.trim() || '{}';
+  // Apesar da instrução "sem markdown", o modelo às vezes envolve a
+  // resposta em ```json ... ``` -- isso quebrava o JSON.parse silenciosamente
+  // (caía no catch, virava null, e a mensagem era ignorada por engano).
+  // Tira a cerca de código antes de tentar parsear.
+  let texto = json.content?.[0]?.text?.trim() || '{}';
+  const match = texto.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (match) texto = match[1].trim();
+
   try {
     return JSON.parse(texto);
-  } catch {
+  } catch (e) {
+    console.error('Falha ao parsear resposta da Claude:', texto, e);
     return null;
   }
 }
