@@ -133,3 +133,16 @@ create table if not exists agendamento_status (
 alter table agendamento_status enable row level security;
 drop policy if exists "agendamento_status leitura publica" on agendamento_status;
 create policy "agendamento_status leitura publica" on agendamento_status for select using (true);
+
+-- ============================================================================
+-- chatwoot_mensagens_processadas: dedupe do poller de troca de praça (não
+-- temos webhook -- a função chatwoot-poll-troca-praca roda a cada minuto
+-- via pg_cron e usa essa tabela pra nunca reprocessar a mesma mensagem
+-- duas vezes). Sem RLS pública -- só service_role mexe aqui.
+-- ============================================================================
+create table if not exists chatwoot_mensagens_processadas (
+  message_id bigint primary key,
+  conversation_id bigint not null,
+  acao text,
+  processado_em timestamptz not null default now()
+);
