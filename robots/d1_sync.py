@@ -50,9 +50,11 @@ def _wait_networkidle_soft(page):
 
 
 def gerar_e_baixar(page, data_inicio, data_fim, destino):
-    page.goto("https://franqueado.entregolog.com")
-    _wait_networkidle_soft(page)
-
+    # login() já deixa a página carregada (URL final .../supply/driver-booking-import,
+    # mesma SPA) -- recarregar tudo de novo com page.goto força um reload
+    # completo do bundle JS (incluindo o desafio anti-bot do PerimeterX de
+    # novo), que via proxy trava com muita frequência. Navega pelo menu a
+    # partir de onde já está, sem reload.
     expandir = page.get_by_role("button", name="Expandir")
     if expandir.count() > 0:
         expandir.click()
