@@ -44,10 +44,32 @@ const PRACAS: Record<string, string> = {
   VILA_JAGUARA: 'Vila Jaguara',
 };
 
+// Só fica ativo no horário do operador atual (06:00-15:30, horário de
+// Brasília) -- depois desse horário outra pessoa assume o atendimento
+// manualmente. Ajuste aqui se o horário mudar.
+const HORARIO_INICIO = 6 * 60;   // 06:00 em minutos desde meia-noite
+const HORARIO_FIM = 15 * 60 + 30; // 15:30
+
+function dentroDoHorarioDeOperacao(): boolean {
+  const agora = new Date().toLocaleString('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const [h, m] = agora.split(':').map(Number);
+  const minutosDoDia = h * 60 + m;
+  return minutosDoDia >= HORARIO_INICIO && minutosDoDia < HORARIO_FIM;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
+    if (!dentroDoHorarioDeOperacao()) {
+      return jsonResponse({ ok: true, fora_do_horario: true });
+    }
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
