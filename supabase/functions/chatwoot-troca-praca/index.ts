@@ -230,70 +230,26 @@ async function identificarEntregador(supabase: any, telefone: string | undefined
   return (await entregadorPorTelefone(supabase, telefone)) || (await entregadorPorNomeDoContato(supabase, nomeContato));
 }
 
+// Modo silencioso (pedido do usuário 06/08/2026 -- o robô estava
+// "alucinando", ou seja, perguntando/respondendo coisa errada demais):
+// SEM estado, SEM perguntas, SEM respostas prontas. Só age quando a
+// mensagem já traz praça clara + entregador identificável (telefone ou
+// CPF no nome do contato) de primeira -- e só responde no sucesso
+// ("Feito."). Qualquer outra coisa (praça não clara, entregador não
+// identificado, não é pedido de troca, falhou) fica em silêncio total,
+// sem responder nada -- atendimento humano assume.
 async function processarMensagem(supabase: any, chatwootToken: string, conversationId: number, msg: any, contexto: string[]) {
-  const { data: estado } = await supabase
-    .from('chatwoot_conversas_estado')
-    .select('*')
-    .eq('conversation_id', conversationId)
-    .maybeSingle();
-
   const telefone = msg?.sender?.phone_number || msg?.conversation?.contact_inbox?.source_id;
 
-  // --- 1. Já estávamos esperando o CPF (praça já sabida, telefone não bateu) ---
-  if (estado?.estado === 'aguardando_cpf') {
-    const entregador = await entregadorPorCpf(supabase, msg.content);
-    if (!entregador) {
-      // Não fica repetindo "não consegui identificar" -- pedido do usuário
-      // 06/08/2026: silêncio total quando não dá pra confirmar, sem
-      // repetir pergunta. Limpa o estado pra não continuar interceptando
-      // as próximas mensagens dessa conversa (atendimento humano assume).
-      await limparEstado(supabase, conversationId);
-      return { acao: 'aguardando_cpf_invalido_sem_resposta' };
-    }
-    await limparEstado(supabase, conversationId);
-    return await executarEResponder(supabase, chatwootToken, conversationId, entregador.cpf, estado.praca_codigo);
-  }
-
-  // --- 2. Já estávamos esperando a praça ---
-  if (estado?.estado === 'aguardando_praca') {
-    const classificacao = await classificarPraca(msg.content);
-    if (!classificacao?.praca_codigo) {
-      await limparEstado(supabase, conversationId);
-      return { acao: 'aguardando_praca_nao_identificada_sem_resposta' };
-    }
-    const entregador = await identificarEntregador(supabase, telefone, msg?.sender?.name);
-    if (entregador) {
-      await limparEstado(supabase, conversationId);
-      return await executarEResponder(supabase, chatwootToken, conversationId, entregador.cpf, classificacao.praca_codigo);
-    }
-    await definirEstado(supabase, conversationId, 'aguardando_cpf', classificacao.praca_codigo);
-    await responder(chatwootToken, conversationId, 'Qual seu CPF?');
-    return { acao: 'aguardando_cpf_iniciado', praca: classificacao.praca_codigo };
-  }
-
-  // --- 3. Mensagem nova, sem estado -- classifica do zero com contexto ---
   const classificacao = await classificarPedidoCompleto(contexto);
 
-  if (classificacao?.categoria && classificacao.categoria in RESPOSTAS_PRONTAS) {
-    await responder(chatwootToken, conversationId, RESPOSTAS_PRONTAS[classificacao.categoria]);
-    return { acao: `resposta_pronta_${classificacao.categoria}` };
-  }
-
-  if (!classificacao?.eh_pedido_troca) {
-    return { acao: 'ignorado_nao_e_troca_praca' };
-  }
-
-  if (!classificacao.praca_codigo) {
-    await definirEstado(supabase, conversationId, 'aguardando_praca', null);
-    await responder(chatwootToken, conversationId, 'Qual praça?');
-    return { acao: 'aguardando_praca_iniciado' };
+  if (!classificacao?.eh_pedido_troca || !classificacao.praca_codigo) {
+    return { acao: 'ignorado_sem_resposta' };
   }
 
   const entregador = await identificarEntregador(supabase, telefone, msg?.sender?.name);
   if (!entregador) {
-    await definirEstado(supabase, conversationId, 'aguardando_cpf', classificacao.praca_codigo);
-    await responder(chatwootToken, conversationId, 'Qual seu CPF?');
-    return { acao: 'aguardando_cpf_iniciado', praca: classificacao.praca_codigo };
+    return { acao: 'ignorado_entregador_nao_identificado' };
   }
 
   return await executarEResponder(supabase, chatwootToken, conversationId, entregador.cpf, classificacao.praca_codigo);
