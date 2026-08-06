@@ -204,6 +204,17 @@ async function entregadorPorTelefone(supabase: any, telefone: string | undefined
   return data;
 }
 
+// Muitos contatos no Chatwoot já têm o CPF gravado no próprio nome (ex.:
+// "RODRIGO LIMA PINHEIRO 439.067.608-39", "😎 522.953.848-18" -- é assim
+// que o painel salva quando cadastra pelo número avulso). Se o telefone
+// não bateu com ninguém, tenta esse caminho antes de perguntar CPF.
+async function entregadorPorNomeDoContato(supabase: any, nome: string | undefined | null) {
+  if (!nome) return null;
+  const match = nome.match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/);
+  if (!match) return null;
+  return await entregadorPorCpf(supabase, match[0]);
+}
+
 async function entregadorPorCpf(supabase: any, cpfTexto: string) {
   const cpfDigits = cpfTexto.replace(/\D/g, '');
   if (cpfDigits.length !== 11) return null;
@@ -213,6 +224,10 @@ async function entregadorPorCpf(supabase: any, cpfTexto: string) {
     .eq('cpf', cpfDigits)
     .maybeSingle();
   return data;
+}
+
+async function identificarEntregador(supabase: any, telefone: string | undefined | null, nomeContato: string | undefined | null) {
+  return (await entregadorPorTelefone(supabase, telefone)) || (await entregadorPorNomeDoContato(supabase, nomeContato));
 }
 
 async function processarMensagem(supabase: any, chatwootToken: string, conversationId: number, msg: any, contexto: string[]) {
@@ -242,7 +257,7 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
       await responder(chatwootToken, conversationId, 'Não entendi -- pra qual praça você quer ir? (ex: Pinheiros, Mooca, Livre...)');
       return { acao: 'aguardando_praca_nao_identificada' };
     }
-    const entregador = await entregadorPorTelefone(supabase, telefone);
+    const entregador = await identificarEntregador(supabase, telefone, msg?.sender?.name);
     if (entregador) {
       await limparEstado(supabase, conversationId);
       return await executarEResponder(supabase, chatwootToken, conversationId, entregador.cpf, classificacao.praca_codigo);
@@ -270,7 +285,7 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
     return { acao: 'aguardando_praca_iniciado' };
   }
 
-  const entregador = await entregadorPorTelefone(supabase, telefone);
+  const entregador = await identificarEntregador(supabase, telefone, msg?.sender?.name);
   if (!entregador) {
     await definirEstado(supabase, conversationId, 'aguardando_cpf', classificacao.praca_codigo);
     await responder(chatwootToken, conversationId, 'Qual seu CPF?');
