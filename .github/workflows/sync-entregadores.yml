@@ -8,7 +8,7 @@ on:
     # franqueado.entregolog.com usado por d1_sync e agendamento_watcher --
     # se o Akamai (WAF) começar a bloquear por excesso de logins, é aqui
     # que se deve reduzir a frequência de novo.
-    - cron: '*/30 * * * *'
+    - cron: '4,34 * * * *'  # minutos 4 e 34, fora da hora cheia (menos fila no Actions)
   workflow_dispatch: {}
 
 jobs:

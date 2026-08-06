@@ -3,8 +3,11 @@ name: Sync D-1 (Performance)
 on:
   schedule:
     # 07:00 America/Sao_Paulo (UTC-3) = 10:00 UTC -- depois do relatório de
-    # ontem já estar fechado no franqueado.
-    - cron: '0 10 * * *'
+    # ontem já estar fechado no franqueado. Minuto 7 (não 0) pra fugir do
+    # horário cheio do GitHub Actions -- runs marcadas pra hora exata (:00)
+    # competem com todo mundo e atrasam mais (aconteceu 06/08/2026, sumiu
+    # o run do dia).
+    - cron: '7 10 * * *'
   workflow_dispatch: {}
 
 jobs:

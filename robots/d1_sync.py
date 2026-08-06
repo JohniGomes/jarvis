@@ -168,28 +168,7 @@ def upsert_supabase(linhas):
     log(f"d1_rows: {len(linhas)} linhas enviadas.")
 
 
-MAX_TENTATIVAS_LOGIN = 4
-
-
-def _login_com_retry(p):
-    # Via proxy residencial saindo do GitHub Actions, a conexão às vezes
-    # trava/cai no meio do fluxo de login (instabilidade de rede, não bug
-    # de timing) -- RECRIA o browser a cada tentativa (nova conexão TCP com
-    # o proxy) em vez de insistir na mesma conexão travada.
-    ultimo_erro = None
-    for tentativa in range(1, MAX_TENTATIVAS_LOGIN + 1):
-        browser = launch_browser(p.chromium)
-        page = browser.new_page(accept_downloads=True)
-        try:
-            login(page)
-            return browser, page
-        except Exception as e:
-            ultimo_erro = e
-            log(f"Tentativa {tentativa}/{MAX_TENTATIVAS_LOGIN} de login falhou: {type(e).__name__}: {e}")
-            browser.close()
-            if tentativa < MAX_TENTATIVAS_LOGIN:
-                time.sleep(8)
-    raise ultimo_erro
+MAX_TENTATIVAS = 4
 
 
 def main():
@@ -197,23 +176,34 @@ def main():
     ontem = hoje - timedelta(days=1)
     destino = "robots/bundle_download.zip"
 
+    # Via proxy residencial saindo do GitHub Actions, a conexão pode travar
+    # em QUALQUER page.goto -- não só no login (já vimos falhar depois,
+    # dentro de gerar_e_baixar). Por isso o retry envolve o fluxo inteiro
+    # (login + gerar + baixar), sempre recriando o browser do zero a cada
+    # tentativa, em vez de só proteger o login.
+    ultimo_erro = None
     with sync_playwright() as p:
-        log("Login em franqueado.entregolog.com...")
-        browser, page = _login_com_retry(p)
-        try:
-            log(f"Gerando relatório Performance de {ontem}...")
-            gerar_e_baixar(page, ontem, ontem, destino)
-        except Exception:
-            # Se a página ficou num estado travado (ex.: conexão caiu no
-            # meio do download), até o screenshot pode travar -- não deixa
-            # isso mascarar o erro original com timeout=5s e log explícito.
+        for tentativa in range(1, MAX_TENTATIVAS + 1):
+            browser = launch_browser(p.chromium)
+            page = browser.new_page(accept_downloads=True)
             try:
-                page.screenshot(path="robots/debug_d1_sync.png", full_page=True, timeout=5000)
-            except Exception as screenshot_erro:
-                log(f"(não consegui tirar screenshot de erro: {screenshot_erro})")
-            raise
-        finally:
-            browser.close()
+                log("Login em franqueado.entregolog.com...")
+                login(page)
+                log(f"Gerando relatório Performance de {ontem}...")
+                gerar_e_baixar(page, ontem, ontem, destino)
+                browser.close()
+                break
+            except Exception as e:
+                ultimo_erro = e
+                log(f"Tentativa {tentativa}/{MAX_TENTATIVAS} falhou: {type(e).__name__}: {e}")
+                try:
+                    page.screenshot(path="robots/debug_d1_sync.png", full_page=True, timeout=5000)
+                except Exception as screenshot_erro:
+                    log(f"(não consegui tirar screenshot de erro: {screenshot_erro})")
+                browser.close()
+                if tentativa == MAX_TENTATIVAS:
+                    raise ultimo_erro
+                time.sleep(8)
 
     log("Lendo bundle...")
     linhas_csv = ler_bundle(destino)

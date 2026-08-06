@@ -11,7 +11,7 @@ on:
   schedule:
     # Rede de segurança: se o webhook do Supabase falhar por algum motivo,
     # isso garante que nenhum pendente fica esquecido por mais de 10 min.
-    - cron: '*/10 * * * *'
+    - cron: '3,13,23,33,43,53 * * * *'  # a cada 10 min, fora da hora cheia
 
 jobs:
   processar:

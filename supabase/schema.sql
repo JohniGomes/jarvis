@@ -158,3 +158,15 @@ create table if not exists chatwoot_conversas_estado (
   praca_codigo text,
   updated_at timestamptz not null default now()
 );
+
+-- ============================================================================
+-- chatwoot_conversas_cursor: performance -- evita buscar as mensagens
+-- completas de TODAS as conversas abertas a cada ciclo do poller. Só busca
+-- de novo se last_activity_at (do resumo da listagem, bem mais barato)
+-- mudou desde a última checagem.
+-- ============================================================================
+create table if not exists chatwoot_conversas_cursor (
+  conversation_id bigint primary key,
+  last_activity_at bigint not null,
+  checado_em timestamptz not null default now()
+);

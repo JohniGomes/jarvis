@@ -81,25 +81,50 @@ Deno.serve(async (req: Request) => {
     const conversas = await listarConversasAbertas(chatwootToken);
     const processados: any[] = [];
 
+    // Cursor de performance: só busca mensagens completas de conversas que
+    // tiveram atividade nova desde o último ciclo (last_activity_at mudou).
+    const { data: cursores } = await supabase
+      .from('chatwoot_conversas_cursor')
+      .select('conversation_id, last_activity_at');
+    const cursorPorConversa = new Map<number, number>(
+      (cursores || []).map((c: any) => [c.conversation_id, c.last_activity_at]),
+    );
+
     for (const conv of conversas) {
-      const msg = conv.last_non_activity_message;
-      if (!msg) continue;
-      const senderType = msg.sender_type || msg.sender?.type;
-      if (senderType !== 'Contact' && senderType !== 'contact') continue;
-      if (!msg.content?.trim()) continue;
+      const cursorAnterior = cursorPorConversa.get(conv.id);
+      if (cursorAnterior !== undefined && cursorAnterior === conv.last_activity_at) {
+        continue; // nada mudou nessa conversa desde a última checagem
+      }
+
+      // Não confia no resumo "last_non_activity_message" da listagem -- se
+      // alguém (humano ou não) responder entre um ciclo e outro, ele deixa
+      // de ser a mensagem do entregador e o pedido original fica invisível.
+      // Busca as mensagens de verdade e acha a última do entregador.
+      const mensagensCru = await mensagensCruas(chatwootToken, conv.id);
+
+      await supabase.from('chatwoot_conversas_cursor').upsert({
+        conversation_id: conv.id,
+        last_activity_at: conv.last_activity_at,
+        checado_em: new Date().toISOString(),
+      });
+      const ultimaDoContato = [...mensagensCru].reverse().find(
+        (m: any) => (m.sender_type === 'Contact' || m.sender?.type === 'contact') && m.content?.trim(),
+      );
+      if (!ultimaDoContato) continue;
 
       const { data: jaProcessada } = await supabase
         .from('chatwoot_mensagens_processadas')
         .select('message_id')
-        .eq('message_id', msg.id)
+        .eq('message_id', ultimaDoContato.id)
         .maybeSingle();
       if (jaProcessada) continue;
 
-      const resultado = await processarMensagem(supabase, chatwootToken, conv.id, msg);
-      processados.push({ conversation_id: conv.id, message_id: msg.id, ...resultado });
+      const contexto = paraContexto(mensagensCru, MENSAGENS_DE_CONTEXTO);
+      const resultado = await processarMensagem(supabase, chatwootToken, conv.id, ultimaDoContato, contexto);
+      processados.push({ conversation_id: conv.id, message_id: ultimaDoContato.id, ...resultado });
 
       await supabase.from('chatwoot_mensagens_processadas').insert({
-        message_id: msg.id,
+        message_id: ultimaDoContato.id,
         conversation_id: conv.id,
         acao: resultado.acao,
       });
@@ -126,17 +151,18 @@ async function listarConversasAbertas(token: string) {
   return conversas;
 }
 
-async function ultimasMensagens(token: string, conversationId: number, limite: number) {
+async function mensagensCruas(token: string, conversationId: number) {
   const base = `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}`;
   const resp = await fetch(`${base}/conversations/${conversationId}/messages`, {
     headers: { api_access_token: token },
   });
   if (!resp.ok) throw new Error(`Chatwoot (mensagens) respondeu ${resp.status}: ${await resp.text()}`);
   const payload = (await resp.json()).payload || [];
-  const relevantes = payload
-    .filter((m: any) => m.content?.trim() && !m.private)
-    .slice(-limite);
-  return relevantes.map((m: any) => {
+  return payload.filter((m: any) => m.content?.trim() && !m.private);
+}
+
+function paraContexto(mensagens: any[], limite: number): string[] {
+  return mensagens.slice(-limite).map((m: any) => {
     const tipo = (m.sender?.type === 'contact' || m.sender_type === 'Contact') ? 'entregador' : 'atendente';
     return `${tipo}: ${m.content.trim()}`;
   });
@@ -164,7 +190,7 @@ async function entregadorPorCpf(supabase: any, cpfTexto: string) {
   return data;
 }
 
-async function processarMensagem(supabase: any, chatwootToken: string, conversationId: number, msg: any) {
+async function processarMensagem(supabase: any, chatwootToken: string, conversationId: number, msg: any, contexto: string[]) {
   const { data: estado } = await supabase
     .from('chatwoot_conversas_estado')
     .select('*')
@@ -202,7 +228,6 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
   }
 
   // --- 3. Mensagem nova, sem estado -- classifica do zero com contexto ---
-  const contexto = await ultimasMensagens(chatwootToken, conversationId, MENSAGENS_DE_CONTEXTO);
   const classificacao = await classificarPedidoCompleto(contexto);
   if (!classificacao?.eh_pedido_troca) {
     return { acao: 'ignorado_nao_e_troca_praca' };
