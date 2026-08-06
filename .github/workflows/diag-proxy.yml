@@ -1,0 +1,30 @@
+name: Diagnóstico de proxy
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Testar conexão direta com o proxy e com o franqueado (sem Playwright)
+        env:
+          PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
+          PROXY_USERNAME: ${{ secrets.PROXY_USERNAME }}
+          PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+        run: |
+          echo "=== ipify (só pra ver o IP e latência do proxy) ==="
+          for i in 1 2 3; do
+            time curl -s -m 15 -x "http://${PROXY_USERNAME}:${PROXY_PASSWORD}@${PROXY_SERVER#http://}" \
+              -w "\nHTTP_CODE:%{http_code} TEMPO_TOTAL:%{time_total}s\n" \
+              https://api.ipify.org?format=json || echo "FALHOU tentativa $i"
+            sleep 2
+          done
+          echo ""
+          echo "=== franqueado.entregolog.com direto (sem JS, só HTML) ==="
+          for i in 1 2 3; do
+            time curl -s -m 30 -x "http://${PROXY_USERNAME}:${PROXY_PASSWORD}@${PROXY_SERVER#http://}" \
+              -w "\nHTTP_CODE:%{http_code} TEMPO_TOTAL:%{time_total}s\n" \
+              https://franqueado.entregolog.com -o /dev/null || echo "FALHOU tentativa $i"
+            sleep 2
+          done
