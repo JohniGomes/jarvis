@@ -11,7 +11,9 @@
 //      pergunta "Qual praça?" e guarda estado aguardando_praca.
 //   3. Praça identificada mas telefone não bate com nenhum entregador
 //      cadastrado -> pergunta "Qual seu CPF?" e guarda estado aguardando_cpf.
-//   4. Mensagem que não é pedido de troca -> ignora, sem responder.
+//   4. Pergunta que bate com uma categoria de RESPOSTAS_PRONTAS (ex.:
+//      repasse diário) -> manda a resposta padrão direto, sem estado.
+//   5. Mensagem que não é nada disso -> ignora, sem responder.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -45,6 +47,29 @@ const PRACAS: Record<string, string> = {
   JABAQUARA_SANTO_AMARO: 'Jabaquara / Santo Amaro',
   MANDAQUI: 'Mandaqui',
   VILA_JAGUARA: 'Vila Jaguara',
+};
+
+// Respostas prontas por categoria (fora troca de praça) -- pedidos do
+// usuário 06/08/2026: dúvidas recorrentes que sempre recebem a mesma
+// resposta, sem precisar de ida-e-volta nem executar nada no parceiro.
+// Pra adicionar uma nova categoria: 1) chave nova aqui com o texto exato,
+// 2) descrever quando usar em CATEGORIAS_RESPOSTA_PRONTA logo abaixo.
+const RESPOSTAS_PRONTAS: Record<string, string> = {
+  repasse_diario: [
+    '*Temos repasse diário!*',
+    '',
+    'Caso tenha interesse no repasse diário faça seu cadastro no número abaixo:',
+    'XAMA/ZAPCASH: +55 11 3136-2074',
+    '',
+    '*franquia* : rayosp',
+  ].join('\n'),
+};
+
+// Descrição de cada categoria de resposta pronta, usada no prompt de
+// classificação -- a Claude escolhe entre essas categorias (uma delas) ou
+// "troca_praca" ou "outro".
+const CATEGORIAS_RESPOSTA_PRONTA: Record<string, string> = {
+  repasse_diario: 'pergunta se tem/pede repasse diário (receber o dinheiro das corridas todo dia, em vez do ciclo normal) -- ex.: "da pra fazer diário", "tem repasse diário", "posso receber por dia", "quero repasse diário"',
 };
 
 // Só fica ativo no horário do operador atual -- depois desse horário outra
@@ -229,6 +254,12 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
 
   // --- 3. Mensagem nova, sem estado -- classifica do zero com contexto ---
   const classificacao = await classificarPedidoCompleto(contexto);
+
+  if (classificacao?.categoria && classificacao.categoria in RESPOSTAS_PRONTAS) {
+    await responder(chatwootToken, conversationId, RESPOSTAS_PRONTAS[classificacao.categoria]);
+    return { acao: `resposta_pronta_${classificacao.categoria}` };
+  }
+
   if (!classificacao?.eh_pedido_troca) {
     return { acao: 'ignorado_nao_e_troca_praca' };
   }
@@ -270,33 +301,38 @@ async function executarEResponder(supabase: any, chatwootToken: string, conversa
 }
 
 // classificarPedidoCompleto: primeira mensagem da conversa (sem estado ainda)
-// -- precisa decidir SE é pedido de troca E, se for, qual praça (pode não
-// vir junto, tipo "me agenda aí" sozinho).
-async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedido_troca: boolean; praca_codigo: string | null } | null> {
+// -- decide entre 3 caminhos: troca de praça (com ou sem praça definida),
+// uma categoria de resposta pronta (RESPOSTAS_PRONTAS), ou nenhum dos dois.
+async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedido_troca: boolean; praca_codigo: string | null; categoria: string | null } | null> {
   const listaPracas = Object.entries(PRACAS).map(([cod, nome]) => `${cod} = "${nome}"`).join('\n');
+  const listaCategorias = Object.entries(CATEGORIAS_RESPOSTA_PRONTA).map(([cat, desc]) => `${cat} = ${desc}`).join('\n');
   const prompt = [
-    'Você identifica se um entregador está pedindo TROCA/ALOCAÇÃO DE PRAÇA (mudar ou definir a',
-    'região/área onde ele vai trabalhar). Trate como pedido de praça QUALQUER mensagem pedindo pra',
-    'ser colocado/alocado/disponibilizado pra trabalhar numa região agora, mesmo sem citar a palavra',
-    '"praça" -- é assim que a maioria dos entregadores pede. Exemplos que SÃO pedido de troca',
-    '(eh_pedido_troca: true):',
-    '  "quero trocar de praça" -> praca_codigo: null (não disse qual)',
-    '  "me agenda aí" -> praca_codigo: null',
-    '  "pode me alocar em pinheiros?" -> praca_codigo: "PINHEIROS"',
-    '  "será q consegue me colocar disponível agora na praça?" -> praca_codigo: null (pediu praça',
-    '    sem especificar qual -- ainda conta como pedido, só falta a praça)',
-    '  "consegue me colocar na mooca?" -> praca_codigo: "MOOCA"',
-    'Exemplos que NÃO são pedido de troca (eh_pedido_troca: false): perguntas sobre pagamento, nota',
-    'fiscal, reclamações, "bom dia"/agradecimentos sozinhos, dúvidas gerais sem pedir alocação.',
+    'Você classifica mensagens de entregadores em UM destes 3 tipos:',
     '',
-    'Praças válidas:',
+    '1) TROCA/ALOCAÇÃO DE PRAÇA (eh_pedido_troca: true) -- mudar ou definir a região/área onde vai',
+    '   trabalhar. Trate como isso QUALQUER mensagem pedindo pra ser colocado/alocado/disponibilizado',
+    '   pra trabalhar numa região agora, mesmo sem citar a palavra "praça". Exemplos:',
+    '     "quero trocar de praça" -> praca_codigo: null (não disse qual)',
+    '     "me agenda aí" -> praca_codigo: null',
+    '     "pode me alocar em pinheiros?" -> praca_codigo: "PINHEIROS"',
+    '     "será q consegue me colocar disponível agora na praça?" -> praca_codigo: null',
+    '     "consegue me colocar na mooca?" -> praca_codigo: "MOOCA"',
+    '',
+    '2) Uma das categorias de resposta pronta abaixo (campo categoria):',
+    listaCategorias,
+    '',
+    '3) Nenhum dos dois (pagamento fora do listado acima, nota fiscal, reclamação, "bom dia"/',
+    '   agradecimento sozinho, dúvida geral) -- eh_pedido_troca: false, categoria: null.',
+    '',
+    'Praças válidas (só usadas se eh_pedido_troca for true):',
     listaPracas,
     '',
     'Você recebe as últimas mensagens da conversa (mais recente por último). Responda APENAS um JSON',
     'válido, sem markdown, no formato:',
-    '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null}',
+    '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null}',
     '',
     'praca_codigo só deve vir preenchido se uma praça específica da lista foi mencionada com clareza.',
+    'categoria e eh_pedido_troca nunca vêm preenchidos ao mesmo tempo.',
     '',
     'Conversa:',
     mensagens.join('\n'),
