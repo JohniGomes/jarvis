@@ -167,19 +167,39 @@ def processar_um(page, cpf, nome):
     page.get_by_role("button", name="Aplicar filtros").click()
     page.wait_for_timeout(1500)
 
-    linhas = page.locator("table tbody tr")
-    total = linhas.count()
-    log(f"{total} escala(s) encontrada(s) pro CPF {cpf}.")
-
+    # A tabela é paginada -- com muitas escalas o turno em andamento pode
+    # estar em qualquer página, não só na primeira. Bug real encontrado em
+    # produção 08/08/2026: CPF com 10 escalas, turno em andamento estava
+    # numa página seguinte, código só olhava a primeira e concluía (errado)
+    # que não tinha nada pra deslogar.
     agora = agora_brasilia()
     linha_alvo = None
-    for i in range(total):
-        linha = linhas.nth(i)
-        texto = linha.inner_text()
-        if _turno_em_andamento(texto, agora):
-            linha_alvo = linha
-            log(f"Turno em andamento encontrado: {texto.splitlines()[0][:60]}")
+    total_visto = 0
+    pagina = 1
+    while True:
+        linhas = page.locator("table tbody tr")
+        total_pagina = linhas.count()
+        total_visto += total_pagina
+        for i in range(total_pagina):
+            linha = linhas.nth(i)
+            texto = linha.inner_text()
+            if _turno_em_andamento(texto, agora):
+                linha_alvo = linha
+                log(f"Turno em andamento encontrado (página {pagina}): {texto.splitlines()[0][:60]}")
+                break
+        if linha_alvo is not None:
             break
+
+        proximo = page.get_by_role("button", name=re.compile("^Pr.ximo$", re.I))
+        if proximo.count() == 0 or not proximo.first.is_enabled():
+            break
+        proximo.first.click()
+        page.wait_for_timeout(1000)
+        pagina += 1
+        if pagina > 20:  # trava de segurança -- nunca deveria ter tantas páginas
+            break
+
+    log(f"{total_visto} escala(s) encontrada(s) pro CPF {cpf} (em {pagina} página(s)).")
 
     if linha_alvo is None:
         log("Nenhum turno em andamento agora pra esse CPF.")
