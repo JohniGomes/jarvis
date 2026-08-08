@@ -159,6 +159,18 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
+
+    // Interruptor geral -- checado antes de qualquer outra coisa. Desligado
+    // no painel (botão ON/OFF) = não faz nada, mesmo dentro do horário.
+    const { data: config } = await supabase
+      .from('automacao_config')
+      .select('ativo')
+      .eq('chave', 'chatwoot_bot')
+      .maybeSingle();
+    if (config && config.ativo === false) {
+      return jsonResponse({ ok: true, desligado_manualmente: true });
+    }
+
     const chatwootToken = Deno.env.get('CHATWOOT_TOKEN')!;
 
     const conversas = await listarConversasAbertas(chatwootToken);

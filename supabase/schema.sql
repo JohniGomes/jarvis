@@ -186,3 +186,27 @@ create table if not exists deslogar_status (
   erro_msg text,
   updated_at timestamptz not null default now()
 );
+
+-- ============================================================================
+-- automacao_config: liga/desliga geral do agente do Chatwoot (pedido do
+-- usuário 08/08/2026 -- "botão ON/OFF que eu consiga apertar pelo
+-- celular"). chatwoot-troca-praca checa isso logo no início e não faz
+-- nada se estiver desligado. Leitura E escrita públicas (mesmo modelo já
+-- usado no resto do painel -- sem senha, confiado por quem tem o link),
+-- pra dar pra ligar/desligar direto do painel sem precisar de function
+-- nova ou SQL Editor.
+-- ============================================================================
+create table if not exists automacao_config (
+  chave text primary key,
+  ativo boolean not null default true,
+  atualizado_em timestamptz not null default now()
+);
+insert into automacao_config (chave, ativo)
+  values ('chatwoot_bot', true)
+  on conflict (chave) do nothing;
+
+alter table automacao_config enable row level security;
+drop policy if exists "automacao_config leitura publica" on automacao_config;
+create policy "automacao_config leitura publica" on automacao_config for select using (true);
+drop policy if exists "automacao_config escrita publica" on automacao_config;
+create policy "automacao_config escrita publica" on automacao_config for update using (true);

@@ -70,6 +70,18 @@ def _supa_headers():
     }
 
 
+def automacao_ligada(url, headers):
+    r = requests.get(
+        f"{url}/rest/v1/automacao_config?chave=eq.chatwoot_bot&select=ativo",
+        headers=headers, timeout=15,
+    )
+    r.raise_for_status()
+    linhas = r.json()
+    if not linhas:
+        return True  # sem linha configurada = comportamento padrão (ligado)
+    return linhas[0]["ativo"] is not False
+
+
 def buscar_pendentes(url, headers):
     r = requests.get(
         f"{url}/rest/v1/deslogar_status?pendente=is.true&select=cpf,nome,conversation_id",
@@ -230,6 +242,11 @@ def main():
         return
 
     url, headers = _supa_headers()
+
+    if not automacao_ligada(url, headers):
+        log("Automação desligada no painel (automacao_config) -- não processa.")
+        return
+
     pendentes = buscar_pendentes(url, headers)
     if not pendentes:
         log("Nenhum pedido de deslogar pendente.")
