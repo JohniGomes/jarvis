@@ -208,7 +208,27 @@ def _login_com_retry(p):
     raise ultimo_erro
 
 
+HORARIO_INICIO_MIN = 6 * 60  # 06:00
+HORARIO_FIM_MIN = 15 * 60 + 30  # 15:30
+
+
+def dentro_do_horario_de_operacao():
+    agora = agora_brasilia()
+    minutos = agora.hour * 60 + agora.minute
+    return HORARIO_INICIO_MIN <= minutos < HORARIO_FIM_MIN
+
+
 def main():
+    # Segunda camada de proteção -- a Edge Function chatwoot-troca-praca já
+    # não grava pedido fora do horário de operação, mas se algo passar
+    # (ex.: teste manual, bug futuro), esse robô não deve agir de qualquer
+    # jeito só porque tem um pendente na fila. Descoberto na prática
+    # 08/08/2026: um teste que ignorou a checagem da function acabou
+    # disparando pedidos de verdade às 2h da manhã.
+    if not dentro_do_horario_de_operacao():
+        log("Fora do horário de operação (06:00-15:30) -- não processa agora, fica pra próxima checagem.")
+        return
+
     url, headers = _supa_headers()
     pendentes = buscar_pendentes(url, headers)
     if not pendentes:
