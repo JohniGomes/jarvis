@@ -8,7 +8,12 @@ on:
     # competem com todo mundo e atrasam mais (aconteceu 06/08/2026, sumiu
     # o run do dia).
     - cron: '7 10 * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      data_alvo:
+        description: 'Data específica pra sincronizar (YYYY-MM-DD) -- deixe vazio pra "ontem" (padrão)'
+        required: false
+        type: string
 
 jobs:
   sync:
@@ -39,6 +44,7 @@ jobs:
           PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
           PROXY_USERNAME: ${{ secrets.PROXY_USERNAME }}
           PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+          DATA_ALVO: ${{ inputs.data_alvo }}
         run: python -m robots.d1_sync
 
       - name: Salvar screenshot de erro (se falhar)

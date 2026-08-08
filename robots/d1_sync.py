@@ -9,7 +9,7 @@ import os
 import re
 import time
 import zipfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import requests
 from dotenv import load_dotenv
@@ -174,8 +174,15 @@ MAX_TENTATIVAS = 4
 
 
 def main():
-    hoje = date.today()
-    ontem = hoje - timedelta(days=1)
+    # DATA_ALVO opcional (formato YYYY-MM-DD) -- pra rodar manualmente pra
+    # um dia específico (ex.: recuperar um dia que falhou), sem depender
+    # de "ontem" relativo a quando o robô roda.
+    data_alvo_env = os.environ.get("DATA_ALVO", "").strip()
+    if data_alvo_env:
+        ontem = datetime.strptime(data_alvo_env, "%Y-%m-%d").date()
+    else:
+        hoje = date.today()
+        ontem = hoje - timedelta(days=1)
     destino = "robots/bundle_download.zip"
 
     # Via proxy residencial saindo do GitHub Actions, a conexão pode travar
