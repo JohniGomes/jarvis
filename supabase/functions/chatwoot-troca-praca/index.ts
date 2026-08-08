@@ -79,16 +79,38 @@ const NOVATO_HORARIOS = [
   'Noturno - 21:30 à 00:00',
   'Madrugada - 00:00 à 01:00',
 ].join('\n');
-const NOVATO_REPASSE = 'E o nosso repasse é feito semanalmente mas você pode antecipar pela zap cash chamando eles aqui: +55 11 3136-2074. Franquia rayosp.';
+// Texto completo sobre formas de recebimento (pedido do usuário 06/08/2026,
+// substituiu uma versão mais curta só sobre repasse diário) -- usado tanto
+// na categoria geral de resposta pronta quanto na dúvida do novato sobre
+// repasse/recebimento.
+const TEXTO_REPASSE = [
+  '💰 Formas de recebimento:',
+  '',
+  '✅ Diário (ZapCash)',
+  'Receba amanhã o valor faturado hoje.',
+  'Taxa: 2,3%',
+  'WhatsApp: +55 11 3136-2074',
+  'Código: rayosp',
+  '',
+  '✅ Semanal',
+  'Receba na quarta-feira o valor faturado durante a semana.',
+  '⚠️ Para receber os repasses, é obrigatório emitir nota fiscal.',
+  'Caso precise, a DUES faz a emissão das notas e toda a assessoria do MEI.',
+  'DUES',
+  'Mensalidade: R$ 12,00',
+  'Contato: (41) 99899-3551',
+  'Código: 1957',
+].join('\n');
+
 const NOVATO_AGENDAMENTO = 'Para se agendar, só enviar um Oi aqui. 11 93618-9622. Ok?';
-const NOVATO_INSTRUCOES_COMPLETAS = ['Show! Vou te mandar algumas instruções:', NOVATO_MAPA, '', NOVATO_HORARIOS, '', NOVATO_REPASSE, '', NOVATO_AGENDAMENTO].join('\n');
+const NOVATO_INSTRUCOES_COMPLETAS = ['Show! Vou te mandar algumas instruções:', NOVATO_MAPA, '', NOVATO_HORARIOS, '', TEXTO_REPASSE, '', NOVATO_AGENDAMENTO].join('\n');
 
 const NOVATO_RESPOSTAS: Record<string, string> = {
   sem_duvida: NOVATO_INSTRUCOES_COMPLETAS,
   duvida_generica: 'Qual sua dúvida?',
   duvida_mapa: NOVATO_MAPA,
   duvida_horario: NOVATO_HORARIOS,
-  duvida_repasse: NOVATO_REPASSE,
+  duvida_repasse: TEXTO_REPASSE,
   duvida_agendamento: NOVATO_AGENDAMENTO,
 };
 
@@ -98,21 +120,14 @@ const NOVATO_RESPOSTAS: Record<string, string> = {
 // Pra adicionar uma nova categoria: 1) chave nova aqui com o texto exato,
 // 2) descrever quando usar em CATEGORIAS_RESPOSTA_PRONTA logo abaixo.
 const RESPOSTAS_PRONTAS: Record<string, string> = {
-  repasse_diario: [
-    '*Temos repasse diário!*',
-    '',
-    'Caso tenha interesse no repasse diário faça seu cadastro no número abaixo:',
-    'XAMA/ZAPCASH: +55 11 3136-2074',
-    '',
-    '*franquia* : rayosp',
-  ].join('\n'),
+  repasse: TEXTO_REPASSE,
 };
 
 // Descrição de cada categoria de resposta pronta, usada no prompt de
 // classificação -- a Claude escolhe entre essas categorias (uma delas) ou
 // "troca_praca" ou "outro".
 const CATEGORIAS_RESPOSTA_PRONTA: Record<string, string> = {
-  repasse_diario: 'pergunta se tem/pede repasse diário (receber o dinheiro das corridas todo dia, em vez do ciclo normal) -- ex.: "da pra fazer diário", "tem repasse diário", "posso receber por dia", "quero repasse diário"',
+  repasse: 'pergunta sobre repasse, recebimento, pagamento, como funciona receber o dinheiro das corridas -- ex.: "como recebo", "quando cai o dinheiro", "tem repasse diário", "como funciona o pagamento", "quero saber sobre o repasse"',
 };
 
 // Só fica ativo no horário do operador atual -- depois desse horário outra
