@@ -241,7 +241,48 @@ async function mensagensCruas(token: string, conversationId: number) {
   });
   if (!resp.ok) throw new Error(`Chatwoot (mensagens) respondeu ${resp.status}: ${await resp.text()}`);
   const payload = (await resp.json()).payload || [];
+
+  // Mensagem de áudio chega com content null -- transcreve (Whisper) e usa
+  // como se fosse o texto da mensagem, pra tudo mais (busca da última
+  // mensagem do entregador, contexto pro classificador) funcionar igual.
+  for (const m of payload) {
+    if (!m.content?.trim() && !m.private) {
+      const audio = (m.attachments || []).find((a: any) => a.file_type === 'audio');
+      if (audio?.data_url) {
+        try {
+          const texto = await transcreverAudio(audio.data_url);
+          if (texto?.trim()) m.content = texto.trim();
+        } catch (e) {
+          console.error(`Falha ao transcrever áudio (mensagem ${m.id}):`, e);
+        }
+      }
+    }
+  }
+
   return payload.filter((m: any) => m.content?.trim() && !m.private);
+}
+
+async function transcreverAudio(dataUrl: string): Promise<string> {
+  const apiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!apiKey) throw new Error('OPENAI_API_KEY não configurada.');
+
+  const audioResp = await fetch(dataUrl);
+  if (!audioResp.ok) throw new Error(`Download do áudio falhou: ${audioResp.status}`);
+  const audioBlob = await audioResp.blob();
+
+  const form = new FormData();
+  form.append('file', audioBlob, 'audio.ogg');
+  form.append('model', 'whisper-1');
+  form.append('language', 'pt');
+
+  const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  });
+  const json = await resp.json();
+  if (!resp.ok) throw new Error(`Whisper API (${resp.status}): ${json.error?.message || JSON.stringify(json)}`);
+  return json.text || '';
 }
 
 function paraContexto(mensagens: any[], limite: number): string[] {
