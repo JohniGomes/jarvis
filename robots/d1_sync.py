@@ -173,6 +173,22 @@ def upsert_supabase(linhas):
 MAX_TENTATIVAS = 4
 
 
+def ja_sincronizado(data_alvo):
+    """Confere se já tem linha de d1_rows pra essa data -- usado pra deixar
+    seguro rodar o sync mais de uma vez no mesmo dia (rede de segurança
+    automática, ver cron extra em sync-d1.yml) sem refazer trabalho à toa
+    quando o sync da manhã já deu certo."""
+    url = os.environ["SUPABASE_URL"].strip()
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"].strip()
+    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
+    resp = requests.get(
+        f"{url}/rest/v1/d1_rows?data_do_periodo=eq.{data_alvo.isoformat()}&select=id&limit=1",
+        headers=headers, timeout=15,
+    )
+    resp.raise_for_status()
+    return len(resp.json()) > 0
+
+
 def main():
     # DATA_ALVO opcional (formato YYYY-MM-DD) -- pra rodar manualmente pra
     # um dia específico (ex.: recuperar um dia que falhou), sem depender
@@ -183,6 +199,15 @@ def main():
     else:
         hoje = date.today()
         ontem = hoje - timedelta(days=1)
+
+    # Autorrecuperação: se já tem dado desse dia no banco (sync anterior deu
+    # certo), não roda de novo -- só importa quando ISSO ainda está faltando,
+    # o que permite agendar horários extras no dia como rede de segurança
+    # sem gastar rodadas à toa quando está tudo ok.
+    if ja_sincronizado(ontem):
+        log(f"{ontem} já está sincronizado -- nada a fazer.")
+        return
+
     destino = "robots/bundle_download.zip"
 
     # Via proxy residencial saindo do GitHub Actions, a conexão pode travar
