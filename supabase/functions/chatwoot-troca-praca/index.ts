@@ -325,6 +325,11 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
     return { acao: `novato_${classificacao.novato_etapa}` };
   }
 
+  if (classificacao?.categoria && classificacao.categoria in RESPOSTAS_PRONTAS) {
+    await responder(chatwootToken, conversationId, RESPOSTAS_PRONTAS[classificacao.categoria]);
+    return { acao: `resposta_pronta_${classificacao.categoria}` };
+  }
+
   if (!classificacao?.eh_pedido_troca || !classificacao.praca_codigo) {
     return { acao: 'ignorado_sem_resposta' };
   }
