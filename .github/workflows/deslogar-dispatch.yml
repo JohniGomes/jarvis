@@ -1,0 +1,49 @@
+name: Deslogar (dispatch)
+
+on:
+  # Disparado por um Database Webhook do Supabase (ver supabase/deslogar_webhook.sql)
+  # sempre que a Edge Function chatwoot-troca-praca grava um pedido em
+  # deslogar_status (mensagem tipo "me desloga" identificada pela Claude).
+  repository_dispatch:
+    types: [deslogar-pendente]
+  workflow_dispatch: {}
+  schedule:
+    # Rede de segurança: se o webhook do Supabase falhar por algum motivo,
+    # isso garante que nenhum pedido fica esquecido por mais de 10 min.
+    - cron: '7,17,27,37,47,57 * * * *'  # a cada 10 min, fora da hora cheia
+
+jobs:
+  processar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependências
+        run: |
+          pip install -r robots/requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Processar pedidos de deslogar
+        env:
+          FRANQUEADO_EMAIL: ${{ secrets.FRANQUEADO_EMAIL }}
+          FRANQUEADO_PASSWORD: ${{ secrets.FRANQUEADO_PASSWORD }}
+          EMAIL_IMAP_PASSWORD: ${{ secrets.EMAIL_IMAP_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CHATWOOT_TOKEN: ${{ secrets.CHATWOOT_TOKEN }}
+          PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
+          PROXY_USERNAME: ${{ secrets.PROXY_USERNAME }}
+          PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+        run: python -m robots.deslogar_processar
+
+      - name: Salvar screenshot de erro (se falhar)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-deslogar-processar
+          path: robots/debug_deslogar_processar.png
+          if-no-files-found: ignore

@@ -170,3 +170,19 @@ create table if not exists chatwoot_conversas_cursor (
   last_activity_at bigint not null,
   checado_em timestamptz not null default now()
 );
+
+-- ============================================================================
+-- deslogar_status: fila de pedidos "me desloga do turno" vindos do
+-- chatwoot-troca-praca -- robots/deslogar_processar.py (Playwright, GitHub
+-- Actions) processa e responde no Chatwoot quando terminar. Só 1 pedido
+-- pendente por vez por CPF (upsert por cpf).
+-- ============================================================================
+create table if not exists deslogar_status (
+  cpf text primary key,
+  nome text,
+  conversation_id bigint not null,
+  pendente boolean not null default true,
+  status text,
+  erro_msg text,
+  updated_at timestamptz not null default now()
+);

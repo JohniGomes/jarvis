@@ -49,6 +49,14 @@ const PRACAS: Record<string, string> = {
   VILA_JAGUARA: 'Vila Jaguara',
 };
 
+// Personalidade das respostas de sucesso (pedido do usuário 06/08/2026) --
+// só usada quando a ação DEU CERTO. Escolhe uma variação aleatória em vez
+// de repetir sempre a mesma palavra.
+const RESPOSTAS_SUCESSO = ['Feito.', 'Opaa, feito!', 'Show, feito!', 'Belezinha, feito!', 'Faala mano! Feito.'];
+function respostaSucesso(): string {
+  return RESPOSTAS_SUCESSO[Math.floor(Math.random() * RESPOSTAS_SUCESSO.length)];
+}
+
 // Respostas prontas por categoria (fora troca de praça) -- pedidos do
 // usuário 06/08/2026: dúvidas recorrentes que sempre recebem a mesma
 // resposta, sem precisar de ida-e-volta nem executar nada no parceiro.
@@ -243,6 +251,25 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
 
   const classificacao = await classificarPedidoCompleto(contexto);
 
+  if (classificacao?.eh_pedido_deslogar) {
+    const entregador = await identificarEntregador(supabase, telefone, msg?.sender?.name);
+    if (!entregador) {
+      return { acao: 'ignorado_entregador_nao_identificado' };
+    }
+    // Deslogar precisa clicar no site (não é uma chamada de API como a
+    // troca de praça) -- só marca o pedido pendente aqui; robots/deslogar_processar.py
+    // (Playwright, GitHub Actions) executa de verdade e responde no Chatwoot
+    // quando terminar (ver supabase/deslogar_webhook.sql).
+    await supabase.from('deslogar_status').upsert({
+      cpf: entregador.cpf,
+      nome: entregador.nome,
+      conversation_id: conversationId,
+      pendente: true,
+      erro_msg: null,
+    });
+    return { acao: 'deslogar_pendente_criado' };
+  }
+
   if (!classificacao?.eh_pedido_troca || !classificacao.praca_codigo) {
     return { acao: 'ignorado_sem_resposta' };
   }
@@ -281,11 +308,11 @@ async function executarEResponder(supabase: any, chatwootToken: string, conversa
 // classificarPedidoCompleto: primeira mensagem da conversa (sem estado ainda)
 // -- decide entre 3 caminhos: troca de praça (com ou sem praça definida),
 // uma categoria de resposta pronta (RESPOSTAS_PRONTAS), ou nenhum dos dois.
-async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedido_troca: boolean; praca_codigo: string | null; categoria: string | null } | null> {
+async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedido_troca: boolean; praca_codigo: string | null; categoria: string | null; eh_pedido_deslogar: boolean } | null> {
   const listaPracas = Object.entries(PRACAS).map(([cod, nome]) => `${cod} = "${nome}"`).join('\n');
   const listaCategorias = Object.entries(CATEGORIAS_RESPOSTA_PRONTA).map(([cat, desc]) => `${cat} = ${desc}`).join('\n');
   const prompt = [
-    'Você classifica mensagens de entregadores em UM destes 3 tipos:',
+    'Você classifica mensagens de entregadores em UM destes 4 tipos:',
     '',
     '1) TROCA/ALOCAÇÃO DE PRAÇA (eh_pedido_troca: true) -- mudar ou definir a região/área onde vai',
     '   trabalhar. Trate como isso QUALQUER mensagem pedindo pra ser colocado/alocado/disponibilizado',
@@ -301,21 +328,25 @@ async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedi
     '     tipo "Oii", "Porfavor", "?" (cutucando, sem resposta ainda) -- ainda conta como pedido',
     '     daquela praça, mesmo a última mensagem sendo só o cutucão.',
     '',
-    '2) Uma das categorias de resposta pronta abaixo (campo categoria):',
+    '2) DESLOGAR DO TURNO ATUAL (eh_pedido_deslogar: true) -- pedido pra sair/ser removido do turno',
+    '   em andamento agora. Linguagem informal comum: "me desloga", "me desliga", "desativa",',
+    '   "me tira do turno", "me desconecta", "quero sair do turno", "desloga eu".',
+    '',
+    '3) Uma das categorias de resposta pronta abaixo (campo categoria):',
     listaCategorias,
     '',
-    '3) Nenhum dos dois (pagamento fora do listado acima, nota fiscal, reclamação, "bom dia"/',
-    '   agradecimento sozinho, dúvida geral) -- eh_pedido_troca: false, categoria: null.',
+    '4) Nenhum dos três (pagamento fora do listado acima, nota fiscal, reclamação, "bom dia"/',
+    '   agradecimento sozinho, dúvida geral) -- todos os campos false/null.',
     '',
     'Praças válidas (só usadas se eh_pedido_troca for true):',
     listaPracas,
     '',
     'Você recebe as últimas mensagens da conversa (mais recente por último). Responda APENAS um JSON',
     'válido, sem markdown, no formato:',
-    '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null}',
+    '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null, "eh_pedido_deslogar": true|false}',
     '',
     'praca_codigo só deve vir preenchido se uma praça específica da lista foi mencionada com clareza.',
-    'categoria e eh_pedido_troca nunca vêm preenchidos ao mesmo tempo.',
+    'No máximo UM entre eh_pedido_troca, categoria e eh_pedido_deslogar deve indicar positivo por vez.',
     '',
     'Conversa:',
     mensagens.join('\n'),
@@ -402,7 +433,7 @@ function formatarResposta(resultado: any): string | null {
     return null;
   }
   if (statusOk) {
-    return 'Feito.';
+    return respostaSucesso();
   }
   return null;
 }
