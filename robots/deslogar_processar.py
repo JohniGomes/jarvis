@@ -115,7 +115,7 @@ def resposta_sucesso():
 
 
 # "ALMOCO 11H30-15H29" -> (time(11,30), time(15,29))
-_TURNO_HORARIO_RE = re.compile(r"(\d{1,2})H(\d{2})-(\d{1,2})H(\d{2})")
+_TURNO_HORARIO_RE = re.compile(r"(\d{1,2})H(\d{2})-(\d{1,2})H(\d{2})", re.IGNORECASE)
 
 
 def _turno_em_andamento(data_texto, turno_texto, agora):
