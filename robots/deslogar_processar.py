@@ -116,17 +116,25 @@ def resposta_sucesso():
 
 # "ALMOCO 11H30-15H29" -> (time(11,30), time(15,29))
 _TURNO_HORARIO_RE = re.compile(r"(\d{1,2})H(\d{2})-(\d{1,2})H(\d{2})", re.IGNORECASE)
+_DATA_RE = re.compile(r"(\d{2}/\d{2}/\d{4})")
 
 
-def _turno_em_andamento(data_texto, turno_texto, agora):
-    """data_texto: 'DD/MM/YYYY', turno_texto: ex. 'ALMOCO 11H30-15H29'."""
+def _turno_em_andamento(texto_linha, agora):
+    """texto_linha: texto bruto da linha inteira da tabela (todas as
+    células juntas). Playwright separa células irmãs com TAB, não quebra
+    de linha -- por isso busca a data e o horário via regex no texto
+    inteiro, em vez de tentar dividir a linha em "colunas" por \\n (bug
+    encontrado em teste real 07/08/2026: dava sempre False)."""
+    m_data = _DATA_RE.search(texto_linha)
+    if not m_data:
+        return False
     try:
-        data_turno = datetime.strptime(data_texto.strip(), "%d/%m/%Y").date()
+        data_turno = datetime.strptime(m_data.group(1), "%d/%m/%Y").date()
     except ValueError:
         return False
     if data_turno != agora.date():
         return False
-    m = _TURNO_HORARIO_RE.search(turno_texto)
+    m = _TURNO_HORARIO_RE.search(texto_linha)
     if not m:
         return False
     h_ini, m_ini, h_fim, m_fim = (int(x) for x in m.groups())
@@ -156,12 +164,9 @@ def processar_um(page, cpf, nome):
     for i in range(total):
         linha = linhas.nth(i)
         texto = linha.inner_text()
-        partes = texto.split("\n")
-        data_texto = partes[0] if len(partes) > 0 else ""
-        turno_texto = partes[1] if len(partes) > 1 else ""
-        if _turno_em_andamento(data_texto, turno_texto, agora):
+        if _turno_em_andamento(texto, agora):
             linha_alvo = linha
-            log(f"Turno em andamento encontrado: {data_texto} {turno_texto}")
+            log(f"Turno em andamento encontrado: {texto.splitlines()[0][:60]}")
             break
 
     if linha_alvo is None:
