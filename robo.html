@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robô Chatwoot</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f4f5f7; margin: 0; padding: 40px 16px; color: #1a1a1a;
+  }
+  .card {
+    max-width: 360px; margin: 0 auto; background: #fff; border-radius: 14px;
+    padding: 28px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center;
+  }
+  h1 { font-size: 17px; margin: 0 0 22px; }
+  .switch-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 14px; }
+  .switch {
+    position: relative; width: 60px; height: 34px; border-radius: 17px; border: none;
+    background: #c0392b; cursor: pointer; flex: none; transition: background 0.15s; padding: 0;
+  }
+  .switch[aria-pressed="true"] { background: #1a9e4a; }
+  .switch:disabled { opacity: 0.6; cursor: default; }
+  .switch__dot {
+    position: absolute; top: 3px; left: 3px; width: 28px; height: 28px; border-radius: 50%;
+    background: #fff; transition: left 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  }
+  .switch[aria-pressed="true"] .switch__dot { left: 29px; }
+  .state { font-size: 16px; font-weight: 700; }
+  .state--on { color: #1a9e4a; }
+  .state--off { color: #c0392b; }
+  .hint { font-size: 12.5px; color: #6a7282; margin-top: 8px; line-height: 1.5; }
+  .loading { font-size: 13px; color: #6a7282; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>Robô do Chatwoot (troca de praça, deslogar, novato)</h1>
+  <div id="content">
+    <p class="loading">Carregando…</p>
+  </div>
+</div>
+
+<script>
+  var SUPABASE_URL = 'https://dhwbypumhfzstbiatquw.supabase.co';
+  var SUPABASE_ANON_KEY = 'sb_publishable_0ww1Pl1fMSXZU9D68Kkp_w_bFxpW_0E';
+
+  var content = document.getElementById('content');
+
+  function render(ativo) {
+    content.innerHTML =
+      '<div class="switch-row">' +
+        '<button type="button" class="switch" id="switchBtn" aria-pressed="' + (ativo ? 'true' : 'false') + '">' +
+          '<span class="switch__dot"></span>' +
+        '</button>' +
+      '</div>' +
+      '<div class="state ' + (ativo ? 'state--on' : 'state--off') + '" id="stateLabel">' + (ativo ? 'Ligado' : 'Desligado') + '</div>' +
+      '<p class="hint">Desligar para tudo na hora -- troca de praça, deslogar do turno e o fluxo de boas-vindas do novato. Ligue de novo quando tiver corrigido.</p>';
+
+    document.getElementById('switchBtn').addEventListener('click', function () {
+      var btn = this;
+      var novoValor = btn.getAttribute('aria-pressed') !== 'true';
+      btn.disabled = true;
+      fetch(SUPABASE_URL + '/rest/v1/automacao_config?chave=eq.chatwoot_bot', {
+        method: 'PATCH',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({ ativo: novoValor, atualizado_em: new Date().toISOString() }),
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('Falha ao salvar (' + r.status + ')');
+          render(novoValor);
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          alert('Não consegui mudar o interruptor: ' + err.message);
+        });
+    });
+  }
+
+  fetch(SUPABASE_URL + '/rest/v1/automacao_config?chave=eq.chatwoot_bot&select=ativo', {
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY },
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (rows) {
+      var ativo = !rows || !rows.length || rows[0].ativo !== false;
+      render(ativo);
+    })
+    .catch(function (err) {
+      content.innerHTML = '<p class="loading">Erro ao carregar: ' + err.message + '</p>';
+    });
+</script>
+
+</body>
+</html>

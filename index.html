@@ -192,17 +192,6 @@
   .agenda-avulso__msg--ok { color: #1a9e4a; }
   .agenda-avulso__msg--erro { color: #c0392b; }
 
-  .bot-toggle { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-  .bot-toggle__label { font-size: 11.5px; color: var(--text-muted); }
-  .bot-toggle__switch { position: relative; width: 42px; height: 24px; border-radius: 12px; border: none; background: #c0392b; cursor: pointer; flex: none; transition: background 0.15s; padding: 0; }
-  .bot-toggle__switch[aria-pressed="true"] { background: #1a9e4a; }
-  .bot-toggle__switch:disabled { opacity: 0.6; cursor: default; }
-  .bot-toggle__dot { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left 0.15s; }
-  .bot-toggle__switch[aria-pressed="true"] .bot-toggle__dot { left: 21px; }
-  .bot-toggle__state { font-size: 11.5px; font-weight: 600; min-width: 42px; }
-  .bot-toggle__state--on { color: #1a9e4a; }
-  .bot-toggle__state--off { color: #c0392b; }
-
   footer.pagefoot { margin-top: 18px; font-size: 12px; color: var(--text-faint); text-align: center; }
 
   @media (max-width: 900px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
@@ -228,13 +217,6 @@
     <div class="meta">
       <span id="d1DateLabel">D-1</span><br>
       <span class="signout" id="signOutBtn">recarregar</span>
-      <div class="bot-toggle" id="botToggleWrap" hidden>
-        <span class="bot-toggle__label">Rob&ocirc; Chatwoot</span>
-        <button type="button" class="bot-toggle__switch" id="botToggleBtn" aria-pressed="true" title="Ligar/desligar o rob&ocirc; do Chatwoot">
-          <span class="bot-toggle__dot"></span>
-        </button>
-        <span class="bot-toggle__state bot-toggle__state--on" id="botToggleState">Ligado</span>
-      </div>
     </div>
   </header>
 
@@ -1839,57 +1821,6 @@
       });
   }
 
-  // Interruptor ON/OFF do robô do Chatwoot (pedido do usuário 08/08/2026 --
-  // "botão que eu consiga apertar pelo celular" pra desligar rápido se a
-  // automação estiver alucinando). Lê/escreve direto na tabela
-  // automacao_config; chatwoot-troca-praca (Edge Function) e
-  // deslogar_processar.py checam essa mesma linha antes de fazer qualquer
-  // coisa.
-  function initBotToggle() {
-    var wrap = document.getElementById('botToggleWrap');
-    var btn = document.getElementById('botToggleBtn');
-    var state = document.getElementById('botToggleState');
-
-    fetch(SUPABASE_URL + '/rest/v1/automacao_config?chave=eq.chatwoot_bot&select=ativo', {
-      headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY },
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (rows) {
-        var ativo = !rows || !rows.length || rows[0].ativo !== false;
-        renderBotToggle(ativo);
-        wrap.hidden = false;
-      })
-      .catch(function () { /* se falhar em carregar, deixa escondido -- não afirma um estado que pode estar errado */ });
-
-    function renderBotToggle(ativo) {
-      btn.setAttribute('aria-pressed', ativo ? 'true' : 'false');
-      state.textContent = ativo ? 'Ligado' : 'Desligado';
-      state.className = 'bot-toggle__state ' + (ativo ? 'bot-toggle__state--on' : 'bot-toggle__state--off');
-    }
-
-    btn.addEventListener('click', function () {
-      var ativoAtual = btn.getAttribute('aria-pressed') === 'true';
-      var novoValor = !ativoAtual;
-      btn.disabled = true;
-      fetch(SUPABASE_URL + '/rest/v1/automacao_config?chave=eq.chatwoot_bot', {
-        method: 'PATCH',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
-          'Content-Type': 'application/json',
-          Prefer: 'return=minimal',
-        },
-        body: JSON.stringify({ ativo: novoValor, atualizado_em: new Date().toISOString() }),
-      })
-        .then(function (r) {
-          if (!r.ok) throw new Error('Falha ao salvar (' + r.status + ')');
-          renderBotToggle(novoValor);
-        })
-        .catch(function (err) { alert('Não consegui mudar o interruptor: ' + err.message); })
-        .finally(function () { btn.disabled = false; });
-    });
-  }
-
   var minDataDate = null, maxDataDate = null;
 
   function recompute() {
@@ -2005,7 +1936,6 @@
     document.getElementById('turnoFilter').addEventListener('change', recompute);
     document.getElementById('agendaAvulsoLiberar').addEventListener('click', function () { toggleAgendamentoAvulso('liberar'); });
     document.getElementById('agendaAvulsoBloquear').addEventListener('click', function () { toggleAgendamentoAvulso('bloquear'); });
-    initBotToggle();
 
     document.querySelectorAll('.tab-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
