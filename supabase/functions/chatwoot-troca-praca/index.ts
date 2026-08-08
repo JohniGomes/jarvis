@@ -57,6 +57,41 @@ function respostaSucesso(): string {
   return RESPOSTAS_SUCESSO[Math.floor(Math.random() * RESPOSTAS_SUCESSO.length)];
 }
 
+// Fluxo de boas-vindas pro novato (pedido do usuário 06/08/2026). O
+// atendente manda manualmente a mensagem de aprovação ("Eu tenho uma boa
+// notícia FULANO...") -- o bot só entra em ação DEPOIS disso, olhando pro
+// histórico da conversa (não precisa de estado salvo -- as próprias
+// respostas do bot já viram contexto no próximo ciclo):
+//   "Não tenho dúvida" -> manda NOVATO_INSTRUCOES_COMPLETAS
+//   "Tenho dúvida" (sem dizer qual) -> "Qual sua dúvida?"
+//   Depois de perguntar "Qual sua dúvida?", a resposta que esclarece do
+//   que se trata -> manda só o trecho relevante (mapa/horário/repasse/agendamento)
+//   Qualquer coisa não clara -> silêncio total (regra do usuário: só
+//   responde com certeza, senão o atendente humano assume)
+const NOVATO_MAPA = 'Esse é nosso mapa: https://www.google.com/maps/d/u/0/viewer?mid=1UigqizFNH7bczw-W5vNI8UA_HjZxE8s&ll=-23.532492961326756%2C-46.625576675241355&z=11';
+const NOVATO_HORARIOS = [
+  'Temos esses turnos:',
+  'Café da manhã - 06:00 às 08:00',
+  'Manhã - 08:00 às 11:30',
+  'Almoço - 11:30 às 15:30',
+  'Tarde - 15:30 às 18:30',
+  'Jantar - 18:30 às 21:30',
+  'Noturno - 21:30 à 00:00',
+  'Madrugada - 00:00 à 01:00',
+].join('\n');
+const NOVATO_REPASSE = 'E o nosso repasse é feito semanalmente mas você pode antecipar pela zap cash chamando eles aqui: +55 11 3136-2074. Franquia rayosp.';
+const NOVATO_AGENDAMENTO = 'Para se agendar, só enviar um Oi aqui. 11 93618-9622. Ok?';
+const NOVATO_INSTRUCOES_COMPLETAS = ['Show! Vou te mandar algumas instruções:', NOVATO_MAPA, '', NOVATO_HORARIOS, '', NOVATO_REPASSE, '', NOVATO_AGENDAMENTO].join('\n');
+
+const NOVATO_RESPOSTAS: Record<string, string> = {
+  sem_duvida: NOVATO_INSTRUCOES_COMPLETAS,
+  duvida_generica: 'Qual sua dúvida?',
+  duvida_mapa: NOVATO_MAPA,
+  duvida_horario: NOVATO_HORARIOS,
+  duvida_repasse: NOVATO_REPASSE,
+  duvida_agendamento: NOVATO_AGENDAMENTO,
+};
+
 // Respostas prontas por categoria (fora troca de praça) -- pedidos do
 // usuário 06/08/2026: dúvidas recorrentes que sempre recebem a mesma
 // resposta, sem precisar de ida-e-volta nem executar nada no parceiro.
@@ -270,6 +305,11 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
     return { acao: 'deslogar_pendente_criado' };
   }
 
+  if (classificacao?.novato_etapa && classificacao.novato_etapa in NOVATO_RESPOSTAS) {
+    await responder(chatwootToken, conversationId, NOVATO_RESPOSTAS[classificacao.novato_etapa]);
+    return { acao: `novato_${classificacao.novato_etapa}` };
+  }
+
   if (!classificacao?.eh_pedido_troca || !classificacao.praca_codigo) {
     return { acao: 'ignorado_sem_resposta' };
   }
@@ -308,11 +348,11 @@ async function executarEResponder(supabase: any, chatwootToken: string, conversa
 // classificarPedidoCompleto: primeira mensagem da conversa (sem estado ainda)
 // -- decide entre 3 caminhos: troca de praça (com ou sem praça definida),
 // uma categoria de resposta pronta (RESPOSTAS_PRONTAS), ou nenhum dos dois.
-async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedido_troca: boolean; praca_codigo: string | null; categoria: string | null; eh_pedido_deslogar: boolean } | null> {
+async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedido_troca: boolean; praca_codigo: string | null; categoria: string | null; eh_pedido_deslogar: boolean; novato_etapa: string | null } | null> {
   const listaPracas = Object.entries(PRACAS).map(([cod, nome]) => `${cod} = "${nome}"`).join('\n');
   const listaCategorias = Object.entries(CATEGORIAS_RESPOSTA_PRONTA).map(([cat, desc]) => `${cat} = ${desc}`).join('\n');
   const prompt = [
-    'Você classifica mensagens de entregadores em UM destes 4 tipos:',
+    'Você classifica mensagens de entregadores em UM destes 5 tipos:',
     '',
     '1) TROCA/ALOCAÇÃO DE PRAÇA (eh_pedido_troca: true) -- mudar ou definir a região/área onde vai',
     '   trabalhar. Trate como isso QUALQUER mensagem pedindo pra ser colocado/alocado/disponibilizado',
@@ -335,18 +375,33 @@ async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedi
     '3) Uma das categorias de resposta pronta abaixo (campo categoria):',
     listaCategorias,
     '',
-    '4) Nenhum dos três (pagamento fora do listado acima, nota fiscal, reclamação, "bom dia"/',
+    '4) BOAS-VINDAS DO NOVATO (campo novato_etapa) -- só se aplica se a conversa TIVER, mais atrás,',
+    '   uma mensagem do atendente com "boa notícia" + "cadastro foi aprovado" (mensagem fixa de',
+    '   aprovação). Se essa mensagem de aprovação NÃO estiver na conversa, novato_etapa é sempre null,',
+    '   mesmo que o resto pareça bater. Se estiver, veja a ÚLTIMA mensagem do entregador:',
+    '     Diz que não tem dúvida ("não", "não tenho", "tudo certo", "nenhuma") E o atendente ainda',
+    '       não mandou as instruções completas ("Show! Vou te mandar...") -> novato_etapa: "sem_duvida"',
+    '     Diz que tem dúvida mas SEM dizer qual ("tenho dúvida", "tenho uma pergunta") -> novato_etapa: "duvida_generica"',
+    '     Se o atendente JÁ perguntou "Qual sua dúvida?" e essa resposta esclarece do que se trata:',
+    '       sobre o mapa/localização -> novato_etapa: "duvida_mapa"',
+    '       sobre horário/turnos -> novato_etapa: "duvida_horario"',
+    '       sobre repasse/pagamento/receber dinheiro -> novato_etapa: "duvida_repasse"',
+    '       sobre como se agendar/começar a trabalhar -> novato_etapa: "duvida_agendamento"',
+    '     Não ficou claro o que a pessoa quer dizer -> novato_etapa: null (não adivinhe)',
+    '',
+    '5) Nenhum dos quatro (pagamento fora do listado acima, nota fiscal, reclamação, "bom dia"/',
     '   agradecimento sozinho, dúvida geral) -- todos os campos false/null.',
     '',
     'Praças válidas (só usadas se eh_pedido_troca for true):',
     listaPracas,
     '',
-    'Você recebe as últimas mensagens da conversa (mais recente por último). Responda APENAS um JSON',
-    'válido, sem markdown, no formato:',
-    '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null, "eh_pedido_deslogar": true|false}',
+    'Você recebe as últimas mensagens da conversa (mais recente por último, rotuladas "entregador"',
+    'ou "atendente"). Responda APENAS um JSON válido, sem markdown, no formato:',
+    '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null, "eh_pedido_deslogar": true|false, "novato_etapa": "sem_duvida"|"duvida_generica"|"duvida_mapa"|"duvida_horario"|"duvida_repasse"|"duvida_agendamento" ou null}',
     '',
     'praca_codigo só deve vir preenchido se uma praça específica da lista foi mencionada com clareza.',
-    'No máximo UM entre eh_pedido_troca, categoria e eh_pedido_deslogar deve indicar positivo por vez.',
+    'No máximo UM entre eh_pedido_troca, categoria, eh_pedido_deslogar e novato_etapa deve indicar',
+    'positivo por vez -- se tiver qualquer dúvida sobre qual, prefira deixar tudo negativo/null.',
     '',
     'Conversa:',
     mensagens.join('\n'),
