@@ -26,6 +26,7 @@ import re
 import sys
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 from dotenv import load_dotenv
@@ -40,6 +41,15 @@ load_dotenv()
 MAX_TENTATIVAS = 4
 SHIFT_SCHEDULE_URL = "https://franqueado.entregolog.com/supply/logistic-operator/shift-schedule"
 
+# O robô roda no GitHub Actions (UTC) -- datetime.now() sem fuso comparava
+# errado contra os horários dos turnos (que são sempre em horário de
+# Brasília). Sempre usar agora_brasilia() pra decidir "turno em andamento".
+BRASILIA_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def agora_brasilia():
+    return datetime.now(BRASILIA_TZ)
+
 CHATWOOT_BASE_URL = "https://chatwoot.rayo-ia.com.br"
 CHATWOOT_ACCOUNT_ID = 2
 
@@ -47,7 +57,7 @@ RESPOSTAS_SUCESSO = ["Feito.", "Opaa, feito!", "Show, feito!", "Belezinha, feito
 
 
 def log(msg):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+    print(f"[{agora_brasilia().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
 def _supa_headers():
@@ -141,7 +151,7 @@ def processar_um(page, cpf, nome):
     total = linhas.count()
     log(f"{total} escala(s) encontrada(s) pro CPF {cpf}.")
 
-    agora = datetime.now()
+    agora = agora_brasilia()
     linha_alvo = None
     for i in range(total):
         linha = linhas.nth(i)
