@@ -379,6 +379,20 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
   }
 
   if (classificacao?.categoria && classificacao.categoria in RESPOSTAS_PRONTAS) {
+    // Pedido do usuário 10/08/2026: a mesma resposta pronta (ex.: repasse)
+    // estava sendo mandada de novo toda vez que a pessoa voltava a
+    // perguntar sobre o mesmo assunto na mesma conversa. Só manda uma vez
+    // por conversa+categoria -- se já mandou antes, fica em silêncio.
+    const { data: jaRespondida } = await supabase
+      .from('chatwoot_mensagens_processadas')
+      .select('message_id')
+      .eq('conversation_id', conversationId)
+      .eq('acao', `resposta_pronta_${classificacao.categoria}`)
+      .limit(1)
+      .maybeSingle();
+    if (jaRespondida) {
+      return { acao: `resposta_pronta_${classificacao.categoria}_repetida_sem_resposta` };
+    }
     await responder(chatwootToken, conversationId, RESPOSTAS_PRONTAS[classificacao.categoria]);
     return { acao: `resposta_pronta_${classificacao.categoria}` };
   }
