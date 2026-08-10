@@ -147,6 +147,23 @@ function dentroDoHorarioDeOperacao(): boolean {
   return minutosDoDia >= HORARIO_INICIO && minutosDoDia < HORARIO_FIM;
 }
 
+// Meia-noite de hoje em horário de Brasília, convertida pra ISO (UTC) --
+// usada pra limitar buscas a "hoje" (ex.: resposta pronta já mandada hoje).
+// Brasília é sempre UTC-3 (sem horário de verão), então meia-noite BRT é
+// sempre 03:00 UTC do mesmo dia.
+function inicioDoDiaBrasiliaISO(): string {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const ano = partes.find((p) => p.type === 'year')!.value;
+  const mes = partes.find((p) => p.type === 'month')!.value;
+  const dia = partes.find((p) => p.type === 'day')!.value;
+  return `${ano}-${mes}-${dia}T03:00:00.000Z`;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -382,12 +399,15 @@ async function processarMensagem(supabase: any, chatwootToken: string, conversat
     // Pedido do usuário 10/08/2026: a mesma resposta pronta (ex.: repasse)
     // estava sendo mandada de novo toda vez que a pessoa voltava a
     // perguntar sobre o mesmo assunto na mesma conversa. Só manda uma vez
-    // por conversa+categoria -- se já mandou antes, fica em silêncio.
+    // por conversa+categoria POR DIA (não pra sempre -- é razoável alguém
+    // perguntar nesse mesmo assunto de novo dias depois) -- se já mandou
+    // hoje, fica em silêncio.
     const { data: jaRespondida } = await supabase
       .from('chatwoot_mensagens_processadas')
       .select('message_id')
       .eq('conversation_id', conversationId)
       .eq('acao', `resposta_pronta_${classificacao.categoria}`)
+      .gte('processado_em', inicioDoDiaBrasiliaISO())
       .limit(1)
       .maybeSingle();
     if (jaRespondida) {
