@@ -9,10 +9,16 @@ on:
     # o run do dia).
     - cron: '7 10 * * *'
     # Rede de segurança: se a run das 07:00 falhar (proxy instável, mesmo
-    # problema recorrente), essas duas tentam de novo mais tarde. d1_sync
-    # já confere sozinho se o dia já está no banco e não faz nada se já
+    # problema recorrente), essas tentam de novo mais tarde. d1_sync já
+    # confere sozinho se o dia já está no banco e não faz nada se já
     # estiver -- então rodar essas de graça todo dia não tem custo quando
     # está tudo ok. Pedido do usuário 08/08/2026 (dia 06 sumiu de novo).
+    #
+    # As duas primeiras (07:25 e 07:45) existem especificamente pra
+    # garantir o dado pronto até as 08:00 -- pedido do usuário 10/08/2026
+    # ("preciso que 8h esteja atualizado sem falta").
+    - cron: '25 10 * * *'  # 07:25 BRT
+    - cron: '45 10 * * *'  # 07:45 BRT
     - cron: '22 13 * * *'  # 10:22 BRT
     - cron: '37 16 * * *'  # 13:37 BRT
   workflow_dispatch:
