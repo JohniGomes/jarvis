@@ -93,6 +93,22 @@ drop policy if exists "chatwoot_envios leitura publica" on chatwoot_envios;
 create policy "chatwoot_envios leitura publica" on chatwoot_envios for select using (true);
 
 -- ============================================================================
+-- super_mais_envios: mesma ideia do chatwoot_envios, só que pro botão
+-- "Enviar" da campanha Super Mais (aba Campanhas). tipo diz se foi mensagem
+-- livre (pessoa já tinha janela de conversa aberta) ou template
+-- aprovado_com_promo (nunca conversou).
+-- ============================================================================
+create table if not exists super_mais_envios (
+  cpf text primary key,
+  tipo text not null check (tipo in ('personalizada', 'template')),
+  enviado_em timestamptz not null default now()
+);
+
+alter table super_mais_envios enable row level security;
+drop policy if exists "super_mais_envios leitura publica" on super_mais_envios;
+create policy "super_mais_envios leitura publica" on super_mais_envios for select using (true);
+
+-- ============================================================================
 -- agendamento_elegibilidade: espelho 1:1 da planilha de elegibilidade do
 -- booking (franqueado.entregolog.com/supply/driver-booking-import). Cada
 -- upload SUBSTITUI a lista inteira no site deles, então guardamos aqui o

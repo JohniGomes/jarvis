@@ -393,7 +393,7 @@
         <p class="analise-col__hint">Cadastro aprovado entre 06/08 e 06/09 (S&atilde;o Paulo Capital), com b&ocirc;nus acumulado em at&eacute; 20 dias corridos ap&oacute;s a aprova&ccedil;&atilde;o: 50 entregas = R$450, 100 = R$900, 200 = R$1.800.</p>
         <div class="table-scroll">
           <table class="mini-table">
-            <thead><tr><th>Entregador</th><th>Aprova&ccedil;&atilde;o</th><th>Prazo</th><th>Entregas</th><th>Valor</th><th>Status</th></tr></thead>
+            <thead><tr><th>Entregador</th><th>Aprova&ccedil;&atilde;o</th><th>Prazo</th><th>Entregas</th><th>Valor</th><th>Status</th><th>A&ccedil;&atilde;o</th></tr></thead>
             <tbody id="campStartBody"></tbody>
           </table>
         </div>
@@ -521,6 +521,7 @@
   // o botão como enviado no carregamento (a aba Sem Corridas é sobrescrita
   // todo dia pelo robô, então esse controle não pode viver nela).
   var chatwootEnviosCpfs = {};
+  var superMaisEnviosCpfs = {};
 
   function loadDashboard() {
     Promise.all([
@@ -529,6 +530,7 @@
       supaFetchAll('sem_corridas', 'cpf.asc'),
       supaFetchAll('chatwoot_envios', 'cpf.asc'),
       supaFetchAll('agendamento_status', 'cpf.asc'),
+      supaFetchAll('super_mais_envios', 'cpf.asc'),
     ])
       .then(function (results) {
         var d1Rows = results[0].map(function (r) {
@@ -550,6 +552,10 @@
         AGENDAMENTO_STATUS_BY_CPF = {};
         results[4].forEach(function (r) {
           AGENDAMENTO_STATUS_BY_CPF[String(r.cpf || '')] = { status: r.status, pendente: r.pendente, erro_msg: r.erro_msg };
+        });
+        superMaisEnviosCpfs = {};
+        results[5].forEach(function (r) {
+          superMaisEnviosCpfs[String(r.cpf || '')] = true;
         });
         loadingScreen.hidden = true;
         dashboardScreen.hidden = false;
@@ -1480,6 +1486,7 @@
       var status = completou ? 'completo' : (hoje <= endOfDay(prazo) ? 'andamento' : (valorAcumulado > 0 ? 'parcial' : 'perdeu'));
       results.push({
         nome: entry.nome || nameKey,
+        cpf: entry.cpf || '',
         aprovacao: aprovacao,
         prazo: prazo,
         total: total,
@@ -1514,9 +1521,56 @@
       ? data.results.map(function (r) {
           var statusTxt = CAMP_STATUS_LABEL[r.status] + (r.diasParaUltimaFaixa != null ? ' (dia ' + r.diasParaUltimaFaixa + ')' : '');
           var valorTxt = r.valorAcumulado ? 'R$ ' + r.valorAcumulado.toLocaleString('pt-BR') : '—';
-          return '<tr><td>' + nameWithCpfHtml(r.nome) + '</td><td>' + formatDateBR(r.aprovacao) + '</td><td>' + formatDateBR(r.prazo) + '</td><td>' + r.total + '</td><td>' + valorTxt + '</td><td>' + statusTxt + '</td></tr>';
+          var cpfDigits = String(r.cpf || '').replace(/\D/g, '');
+          var btnHtml = '';
+          if (cpfDigits.length === 11) {
+            var jaEnviado = !!superMaisEnviosCpfs[cpfDigits];
+            btnHtml = jaEnviado
+              ? '<button type="button" class="send-chatwoot-btn" data-cpf="' + cpfDigits + '" disabled>Enviado ✅</button>'
+              : '<button type="button" class="send-chatwoot-btn super-mais-btn" data-cpf="' + cpfDigits + '">Enviar</button>';
+          }
+          return '<tr><td>' + nameWithCpfHtml(r.nome) + '</td><td>' + formatDateBR(r.aprovacao) + '</td><td>' + formatDateBR(r.prazo) + '</td><td>' + r.total + '</td><td>' + valorTxt + '</td><td>' + statusTxt + '</td><td>' + btnHtml + '</td></tr>';
         }).join('')
-      : '<tr><td colspan="6" class="empty-hint">Nenhum entregador com data de aprovação no período (06/08–06/09) até agora.</td></tr>';
+      : '<tr><td colspan="7" class="empty-hint">Nenhum entregador com data de aprovação no período (06/08–06/09) até agora.</td></tr>';
+
+    body.querySelectorAll('.super-mais-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { sendSuperMaisMessage(btn); });
+    });
+  }
+
+  function sendSuperMaisMessage(btn) {
+    var cpf = btn.getAttribute('data-cpf');
+    btn.disabled = true;
+    btn.textContent = 'Enviando…';
+    fetch(SUPABASE_URL + '/functions/v1/super-mais-enviar', {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cpf: cpf }),
+    })
+      .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+      .then(function (res) {
+        if (res.body && res.body.error) {
+          if (res.status === 409) {
+            btn.textContent = 'Enviado ✅';
+            return;
+          }
+          btn.disabled = false;
+          btn.textContent = 'Enviar';
+          alert('Erro ao enviar: ' + res.body.error);
+          return;
+        }
+        superMaisEnviosCpfs[cpf] = true;
+        btn.textContent = 'Enviado ✅';
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = 'Enviar';
+        alert('Erro ao enviar: ' + err.message);
+      });
   }
 
   // R$100 por semana: R$50 pros 30 primeiros a bater 40 entregas (pedidos)
