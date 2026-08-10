@@ -171,8 +171,6 @@
   .note__body code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
   .chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .chip { font-size: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; }
-  .wa-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: #fff; background: #25D366; border-radius: 50%; text-decoration: none; flex: none; }
-  .wa-btn:hover { filter: brightness(1.05); }
   .send-chatwoot-btn { font-family: inherit; font-size: 11.5px; font-weight: 600; color: #fff; background: #25D366; border: none; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
   .send-chatwoot-btn:disabled { opacity: 0.6; cursor: default; }
   #mainTable td:last-child { white-space: nowrap; }
@@ -328,7 +326,7 @@
           <p class="analise-col__hint">Compareceram, mas o % Tempo Online m&eacute;dio ficou abaixo de 50%.</p>
           <div class="table-scroll">
             <table class="mini-table">
-              <thead><tr><th>Entregador</th><th>Turnos</th><th>Tempo Online</th><th>A&ccedil;&atilde;o</th></tr></thead>
+              <thead><tr><th>Entregador</th><th>Turnos</th><th>Tempo Online</th></tr></thead>
               <tbody id="lowOnlineBody"></tbody>
             </table>
           </div>
@@ -338,7 +336,7 @@
           <p class="analise-col__hint">5+ corridas ofertadas com 90%+ de recusa.</p>
           <div class="table-scroll">
             <table class="mini-table">
-              <thead><tr><th>Entregador</th><th>Ofert.</th><th>Recus.</th><th>% Recusa</th><th>A&ccedil;&atilde;o</th></tr></thead>
+              <thead><tr><th>Entregador</th><th>Ofert.</th><th>Recus.</th><th>% Recusa</th></tr></thead>
               <tbody id="rejectionBody"></tbody>
             </table>
           </div>
@@ -366,7 +364,7 @@
           <p class="analise-col__hint">Pessoas com mais horas escaladas "perdidas" no m&ecirc;s (n&atilde;o compareceram ou ficaram pouco online) &mdash; recuperar essas horas &eacute; o que mais pesa pra bater a meta.</p>
           <div class="table-scroll">
             <table class="mini-table">
-              <thead><tr><th>Entregador</th><th>Motivo</th><th>Horas escaladas</th><th>Horas perdidas</th><th>A&ccedil;&atilde;o</th></tr></thead>
+              <thead><tr><th>Entregador</th><th>Motivo</th><th>Horas escaladas</th><th>Horas perdidas</th></tr></thead>
               <tbody id="metaOppBody"></tbody>
             </table>
           </div>
@@ -376,7 +374,7 @@
           <p class="analise-col__hint">Maiores respons&aacute;veis por corridas aceitas e canceladas (pesa na Taxa Conclus&atilde;o).</p>
           <div class="table-scroll">
             <table class="mini-table">
-              <thead><tr><th>Entregador</th><th>Cancel.</th><th>A&ccedil;&atilde;o</th></tr></thead>
+              <thead><tr><th>Entregador</th><th>Cancel.</th></tr></thead>
               <tbody id="metaCancelBody"></tbody>
             </table>
           </div>
@@ -391,11 +389,11 @@
     </div>
     <div class="analise-body">
       <div class="camp-block">
-        <h3>Start EntreG&ocirc; &mdash; R$200 novos entregadores <span class="count-badge" id="campStartCount">0</span></h3>
-        <p class="analise-col__hint">Cadastro aprovado entre 03/08 e 31/08, com 50 entregas (pedidos) completadas em at&eacute; 7 dias corridos ap&oacute;s a data de aprova&ccedil;&atilde;o.</p>
+        <h3>Super Mais &mdash; at&eacute; R$1.800 novos entregadores <span class="count-badge" id="campStartCount">0</span></h3>
+        <p class="analise-col__hint">Cadastro aprovado entre 06/08 e 06/09 (S&atilde;o Paulo Capital), com b&ocirc;nus acumulado em at&eacute; 20 dias corridos ap&oacute;s a aprova&ccedil;&atilde;o: 50 entregas = R$450, 100 = R$900, 200 = R$1.800.</p>
         <div class="table-scroll">
           <table class="mini-table">
-            <thead><tr><th>Entregador</th><th>Aprova&ccedil;&atilde;o</th><th>Prazo</th><th>Entregas</th><th>Status</th></tr></thead>
+            <thead><tr><th>Entregador</th><th>Aprova&ccedil;&atilde;o</th><th>Prazo</th><th>Entregas</th><th>Valor</th><th>Status</th></tr></thead>
             <tbody id="campStartBody"></tbody>
           </table>
         </div>
@@ -819,12 +817,6 @@
       .replace(new RegExp('[̀-ͯ]', 'g'), '')
       .replace(/\s+/g, ' ');
   }
-  // Primeiro nome, pra usar nas mensagens do WhatsApp (mais pessoal que o
-  // nome completo). As colunas/listas continuam mostrando o nome inteiro.
-  function firstName(name) {
-    return (name || '').trim().split(/\s+/)[0] || name;
-  }
-
   // ---- WhatsApp e CPF (planilha externa "Pós-vendas": nome + telefone + CPF) ----
   var POS_VENDAS_BY_NAME = {};
   function buildPosVendasIndex(posVendasRows) {
@@ -870,13 +862,6 @@
   function cpfByName(nome) {
     var entry = POS_VENDAS_BY_NAME[normName(nome)];
     return entry ? formatCpfDisplay(entry.cpf) : '';
-  }
-  var WHATSAPP_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.04 2c-5.46 0-9.9 4.43-9.9 9.9 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.9-4.43 9.9-9.9 0-2.64-1.03-5.13-2.9-6.99A9.82 9.82 0 0 0 12.04 2zm0 1.67c2.24 0 4.35.87 5.93 2.46a8.3 8.3 0 0 1 2.45 5.92c0 4.55-3.7 8.24-8.25 8.24a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.18 8.18 0 0 1-1.26-4.38c0-4.55 3.7-8.24 8.25-8.24zm-3.87 4.51c-.17 0-.44.06-.67.32-.23.26-.88.86-.88 2.09 0 1.23.9 2.42 1.03 2.59.13.17 1.75 2.8 4.32 3.81 2.14.85 2.58.68 3.04.64.47-.04 1.5-.61 1.72-1.2.21-.59.21-1.09.15-1.2-.06-.11-.24-.17-.5-.3-.26-.13-1.5-.74-1.74-.83-.23-.09-.4-.13-.58.13-.17.26-.66.83-.81 1-.15.17-.3.19-.56.06-.26-.13-1.08-.4-2.06-1.27-.76-.68-1.28-1.51-1.43-1.77-.15-.26-.02-.4.11-.53.12-.12.26-.3.4-.45.13-.15.17-.26.26-.43.09-.17.04-.32-.02-.45-.06-.13-.58-1.42-.8-1.94-.2-.5-.42-.44-.58-.44l-.5-.01z"/></svg>';
-  function whatsappButtonHtml(nome, mensagem) {
-    var entry = POS_VENDAS_BY_NAME[normName(nome)];
-    if (!entry || !entry.phone) return '';
-    var url = 'https://wa.me/' + entry.phone + '?text=' + encodeURIComponent(mensagem);
-    return '<a class="wa-btn" href="' + url + '" target="_blank" rel="noopener" title="Chamar no WhatsApp">' + WHATSAPP_ICON_SVG + '</a>';
   }
   // Nome + CPF (se encontrado) como sub-linha, no mesmo estilo usado na
   // tabela principal — reaproveitado em todas as listas/mini-tabelas.
@@ -1182,27 +1167,24 @@
     var noShowList = document.getElementById('noShowList');
     noShowList.innerHTML = analysis.noShow.length
       ? analysis.noShow.map(function (p) {
-          var msg = 'Olá, ' + firstName(p.nome) + '! vi que no período ' + currentPeriodLabel + ' você se agendou mas não compareceu. Aconteceu algo? Estou aqui para te ajudar.';
-          return '<span class="chip">' + nameWithCpfHtml(p.nome) + whatsappButtonHtml(p.nome, msg) + '</span>';
+          return '<span class="chip">' + nameWithCpfHtml(p.nome) + '</span>';
         }).join('')
       : '<span class="empty-hint">Ninguém — todo mundo que agendou apareceu.</span>';
 
     var lowOnlineBody = document.getElementById('lowOnlineBody');
     lowOnlineBody.innerHTML = analysis.lowOnline.length
       ? analysis.lowOnline.map(function (p) {
-          var msg = 'Olá, ' + firstName(p.nome) + '! vi que no período ' + currentPeriodLabel + ' você ficou menos da metade do turno online. Aconteceu algo? Estou aqui para te ajudar.';
-          return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + p.turnos + '</td><td>' + p.tempo_online_pct.toFixed(1).replace('.', ',') + '%</td><td>' + whatsappButtonHtml(p.nome, msg) + '</td></tr>';
+          return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + p.turnos + '</td><td>' + p.tempo_online_pct.toFixed(1).replace('.', ',') + '%</td></tr>';
         }).join('')
-      : '<tr><td colspan="4" class="empty-hint">Ninguém abaixo de 50%.</td></tr>';
+      : '<tr><td colspan="3" class="empty-hint">Ninguém abaixo de 50%.</td></tr>';
 
     var rejectionBody = document.getElementById('rejectionBody');
     rejectionBody.innerHTML = analysis.rejectionOutliers.length
       ? analysis.rejectionOutliers.map(function (p) {
           var pctRec = Math.round((100 * p.rejeitadas / p.corridas_ofertadas) * 10) / 10;
-          var msg = 'Olá, ' + firstName(p.nome) + '! vi que no período ' + currentPeriodLabel + ' você recusou mais de 90% das corridas. Aconteceu algo? Estou aqui para te ajudar.';
-          return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + p.corridas_ofertadas + '</td><td>' + p.rejeitadas + '</td><td>' + pctRec.toFixed(1).replace('.', ',') + '%</td><td>' + whatsappButtonHtml(p.nome, msg) + '</td></tr>';
+          return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + p.corridas_ofertadas + '</td><td>' + p.rejeitadas + '</td><td>' + pctRec.toFixed(1).replace('.', ',') + '%</td></tr>';
         }).join('')
-      : '<tr><td colspan="5" class="empty-hint">Ninguém com recusa acima de 90%.</td></tr>';
+      : '<tr><td colspan="4" class="empty-hint">Ninguém com recusa acima de 90%.</td></tr>';
 
     var range = document.getElementById('simRange');
     range.value = Math.round(tempoOnlineDetail.pct);
@@ -1353,42 +1335,41 @@
       gapResult.innerHTML = '<span class="empty-hint">Sem dados suficientes no mês pra calcular.</span>';
     }
 
-    // Quanto a pessoa recebe por hora online — usado só pra estimar o valor
-    // que ela "deixou na mesa" ficando offline nas horas perdidas.
-    var VALOR_POR_HORA_ONLINE = 2.15;
-
     document.getElementById('metaOppCount').textContent = meta.opportunities.length;
     var oppBody = document.getElementById('metaOppBody');
     oppBody.innerHTML = meta.opportunities.length
       ? meta.opportunities.map(function (o) {
           var p = o.p;
-          var horasAgendadas = Math.round(p.agendadoSec / 3600);
-          var horasPerdidas = Math.round(o.perdidoSec / 3600);
-          var valor = Math.round(horasPerdidas * VALOR_POR_HORA_ONLINE);
-          var msg = 'Olá, ' + firstName(p.nome) + '. Vi que no período ' + periodLabel + ' a soma dos seus turnos deu ' + horasAgendadas +
-            ' horas, mas você ficou offline por ' + horasPerdidas + ' horas. Ficou na mesa R$ ' + valor.toLocaleString('pt-BR') +
-            ', que você deixou de ganhar. Aconteceu algo? Estou aqui pra te ajudar.';
-          return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + o.motivo + '</td><td>' + fmtHoras(p.agendadoSec) + '</td><td>' + fmtHoras(o.perdidoSec) + '</td><td>' + whatsappButtonHtml(p.nome, msg) + '</td></tr>';
+          return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + o.motivo + '</td><td>' + fmtHoras(p.agendadoSec) + '</td><td>' + fmtHoras(o.perdidoSec) + '</td></tr>';
         }).join('')
-      : '<tr><td colspan="5" class="empty-hint">Nenhuma oportunidade encontrada.</td></tr>';
+      : '<tr><td colspan="4" class="empty-hint">Nenhuma oportunidade encontrada.</td></tr>';
 
     document.getElementById('metaCancelCount').textContent = meta.cancelRanking.length;
     var cancelBody = document.getElementById('metaCancelBody');
     cancelBody.innerHTML = meta.cancelRanking.length
       ? meta.cancelRanking.map(function (p) {
-          var msg = 'Olá, ' + firstName(p.nome) + '! Vi que no período ' + periodLabel + ' você cancelou ' + p.canceladas + ' corridas. Aconteceu algo? Estou aqui pra te ajudar!';
-          return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + p.canceladas + '</td><td>' + whatsappButtonHtml(p.nome, msg) + '</td></tr>';
+          return '<tr><td>' + nameWithCpfHtml(p.nome) + '</td><td>' + p.canceladas + '</td></tr>';
         }).join('')
-      : '<tr><td colspan="3" class="empty-hint">Ninguém com cancelamentos.</td></tr>';
+      : '<tr><td colspan="2" class="empty-hint">Ninguém com cancelamentos.</td></tr>';
   }
 
-  // ================= Campanhas de bônus (Start EntreGô / R$100 por semana) =================
+  // ================= Campanhas de bônus (Super Mais / R$100 por semana) =================
   // Datas e regras fixas dos criativos de agosto/2026. Ajuste aqui se a
   // vigência ou os critérios mudarem numa próxima campanha.
-  var CAMP_START = new Date(2026, 7, 3, 0, 0, 0);
-  var CAMP_END = new Date(2026, 7, 31, 23, 59, 59);
-  var CAMP_ENTREGAS_START = 50;
-  var CAMP_PRAZO_DIAS = 7;
+  //
+  // Super Mais (substituiu o Start EntreGô R$200 -- pedido do usuário
+  // 10/08/2026): bônus acumulado por faixa de entregas concluídas dentro
+  // de 20 dias corridos da aprovação -- 50 = R$450, 100 = R$900
+  // (acumulado), 200 = R$1.800 (acumulado). Só novos entregadores de São
+  // Paulo Capital aprovados durante o período da campanha.
+  var CAMP_START = new Date(2026, 7, 6, 0, 0, 0);
+  var CAMP_END = new Date(2026, 8, 6, 23, 59, 59);
+  var CAMP_PRAZO_DIAS = 20;
+  var CAMP_FAIXAS = [
+    { entregas: 50, valor: 450 },
+    { entregas: 100, valor: 900 },
+    { entregas: 200, valor: 1800 },
+  ];
   var CAMP_ENTREGAS_SEMANA = 40;
   var CAMP_TOP_N_SEMANA = 30;
   var CAMP_ACEITE_MIN_SEMANA = 70;
@@ -1442,11 +1423,11 @@
     });
   }
 
-  // Start EntreGô: R$200 pra quem foi aprovado entre 03/08 e 31/08 e bateu
-  // 50 entregas (pedidos) em até 7 dias corridos após a aprovação. A data de
+  // Super Mais: bônus acumulado por faixa de entregas (pedidos) concluídas
+  // em até 20 dias corridos após a aprovação -- 50/100/200 entregas =
+  // R$450/900/1.800 (acumulado, não é por faixa isolada). A data de
   // aprovação vem da coluna "Data de Aprovação" da aba Entregadores — sem
-  // ela, não dá pra avaliar a pessoa (fica de fora, com um aviso se parecer
-  // uma pessoa nova sem essa data preenchida).
+  // ela, não dá pra avaliar a pessoa (fica de fora).
   function computeStartEntreGo(allRows) {
     // A lista de quem entra na campanha vem de quem foi APROVADO na janela
     // (tabela entregadores/POS_VENDAS_BY_NAME) -- não de quem já tem turno
@@ -1480,27 +1461,38 @@
         return d && d >= aprovacao && d <= prazo;
       }));
 
-      var total = 0, dataBateu = null;
+      var total = 0;
+      var valorAcumulado = 0;
+      var faixaAtingida = null;
+      var dataUltimaFaixa = null;
       rowsNoPrazo.forEach(function (r) {
         total += Number(r.numero_de_pedidos_aceitos_e_concluidos) || 0;
-        if (total >= CAMP_ENTREGAS_START && !dataBateu) dataBateu = parseDateBR(r.data_do_periodo);
+        CAMP_FAIXAS.forEach(function (faixa) {
+          if (total >= faixa.entregas && valorAcumulado < faixa.valor) {
+            valorAcumulado = faixa.valor;
+            faixaAtingida = faixa.entregas;
+            dataUltimaFaixa = parseDateBR(r.data_do_periodo);
+          }
+        });
       });
 
-      var status = dataBateu ? 'ganhou' : (hoje <= endOfDay(prazo) ? 'andamento' : 'perdeu');
+      var completou = faixaAtingida === CAMP_FAIXAS[CAMP_FAIXAS.length - 1].entregas;
+      var status = completou ? 'completo' : (hoje <= endOfDay(prazo) ? 'andamento' : (valorAcumulado > 0 ? 'parcial' : 'perdeu'));
       results.push({
         nome: entry.nome || nameKey,
         aprovacao: aprovacao,
         prazo: prazo,
         total: total,
+        valorAcumulado: valorAcumulado,
+        faixaAtingida: faixaAtingida,
         status: status,
-        diasParaBater: dataBateu ? Math.round((dataBateu - aprovacao) / 86400000) : null,
+        diasParaUltimaFaixa: dataUltimaFaixa ? Math.round((dataUltimaFaixa - aprovacao) / 86400000) : null,
       });
     });
 
-    var statusOrder = { ganhou: 0, andamento: 1, perdeu: 2 };
+    var statusOrder = { completo: 0, andamento: 1, parcial: 2, perdeu: 3 };
     results.sort(function (a, b) {
       if (statusOrder[a.status] !== statusOrder[b.status]) return statusOrder[a.status] - statusOrder[b.status];
-      if (a.status === 'ganhou') return a.diasParaBater - b.diasParaBater;
       return b.total - a.total;
     });
 
@@ -1508,9 +1500,10 @@
   }
 
   var CAMP_STATUS_LABEL = {
-    ganhou: '✅ Ganhou',
+    completo: '✅ Completou (200)',
     andamento: '⏳ Em andamento',
-    perdeu: '❌ Não bateu no prazo',
+    parcial: '🔶 Prazo acabou (ganhou parte)',
+    perdeu: '❌ Não bateu 50 no prazo',
   };
 
   function renderStartEntreGo(data) {
@@ -1519,10 +1512,11 @@
     var body = document.getElementById('campStartBody');
     body.innerHTML = data.results.length
       ? data.results.map(function (r) {
-          var statusTxt = CAMP_STATUS_LABEL[r.status] + (r.diasParaBater != null ? ' (dia ' + r.diasParaBater + ')' : '');
-          return '<tr><td>' + nameWithCpfHtml(r.nome) + '</td><td>' + formatDateBR(r.aprovacao) + '</td><td>' + formatDateBR(r.prazo) + '</td><td>' + r.total + '</td><td>' + statusTxt + '</td></tr>';
+          var statusTxt = CAMP_STATUS_LABEL[r.status] + (r.diasParaUltimaFaixa != null ? ' (dia ' + r.diasParaUltimaFaixa + ')' : '');
+          var valorTxt = r.valorAcumulado ? 'R$ ' + r.valorAcumulado.toLocaleString('pt-BR') : '—';
+          return '<tr><td>' + nameWithCpfHtml(r.nome) + '</td><td>' + formatDateBR(r.aprovacao) + '</td><td>' + formatDateBR(r.prazo) + '</td><td>' + r.total + '</td><td>' + valorTxt + '</td><td>' + statusTxt + '</td></tr>';
         }).join('')
-      : '<tr><td colspan="5" class="empty-hint">Nenhum entregador com data de aprovação no período (03–31/08) até agora.</td></tr>';
+      : '<tr><td colspan="6" class="empty-hint">Nenhum entregador com data de aprovação no período (06/08–06/09) até agora.</td></tr>';
   }
 
   // R$100 por semana: R$50 pros 30 primeiros a bater 40 entregas (pedidos)
