@@ -219,25 +219,37 @@ def processar_um(page, cpf, nome):
     return True
 
 
-def _login_com_retry(p):
+def _processar_um_com_retry(p, cpf, nome):
+    """Faz login + processar_um pra um CPF, recriando o browser do zero a
+    cada tentativa (nova conexão com o proxy). Bug real visto em produção
+    10/08/2026: login/navegação falhava por instabilidade do proxy (comum,
+    já documentado em outros robôs), mas cada pedido só tinha 1 chance --
+    qualquer falha aí marcava erro e desistia, então o motorista precisava
+    mandar mensagem de novo (às vezes várias vezes) até calhar de dar
+    certo. Agora tenta de novo sozinho antes de desistir.
+
+    Retorna (sucesso, erro_msg): sucesso é True/False/None (None = ainda
+    deu erro depois de todas as tentativas, não sabemos se tinha turno)."""
     ultimo_erro = None
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         browser = launch_browser(p.chromium)
         page = browser.new_page(accept_downloads=True)
         try:
             franqueado_login(page)
-            return browser, page
+            sucesso = processar_um(page, cpf, nome)
+            browser.close()
+            return sucesso, None
         except Exception as e:
-            ultimo_erro = e
-            log(f"Tentativa {tentativa}/{MAX_TENTATIVAS} de login falhou: {type(e).__name__}: {e}")
+            ultimo_erro = f"{type(e).__name__}: {e}"
+            log(f"Tentativa {tentativa}/{MAX_TENTATIVAS} pro CPF {cpf} falhou: {ultimo_erro}")
             try:
-                page.screenshot(path=f"robots/debug_deslogar_tentativa{tentativa}.png", full_page=True, timeout=5000)
+                page.screenshot(path=f"robots/debug_deslogar_{cpf}_tentativa{tentativa}.png", full_page=True, timeout=5000)
             except Exception:
                 pass
             browser.close()
             if tentativa < MAX_TENTATIVAS:
                 time.sleep(8)
-    raise ultimo_erro
+    return None, ultimo_erro
 
 
 HORARIO_INICIO_MIN = 6 * 60  # 06:00
@@ -273,28 +285,18 @@ def main():
         return
 
     with sync_playwright() as p:
-        log("Login em franqueado.entregolog.com...")
-        browser, page = _login_com_retry(p)
-        try:
-            for p_item in pendentes:
-                cpf, nome, conversation_id = p_item["cpf"], p_item["nome"], p_item["conversation_id"]
-                try:
-                    sucesso = processar_um(page, cpf, nome)
-                    if sucesso:
-                        marcar_concluido(url, headers, cpf, "deslogado")
-                        responder_chatwoot(conversation_id, resposta_sucesso())
-                    else:
-                        marcar_erro(url, headers, cpf, "Nenhum turno em andamento encontrado.")
-                except Exception as e:
-                    erro_msg = f"{type(e).__name__}: {e}"
-                    log(f"ERRO processando {cpf}: {erro_msg}")
-                    try:
-                        page.screenshot(path="robots/debug_deslogar_processar.png", full_page=True, timeout=5000)
-                    except Exception:
-                        pass
-                    marcar_erro(url, headers, cpf, erro_msg)
-        finally:
-            browser.close()
+        for p_item in pendentes:
+            cpf, nome, conversation_id = p_item["cpf"], p_item["nome"], p_item["conversation_id"]
+            log(f"Processando {nome} ({cpf})...")
+            sucesso, erro_msg = _processar_um_com_retry(p, cpf, nome)
+            if sucesso:
+                marcar_concluido(url, headers, cpf, "deslogado")
+                responder_chatwoot(conversation_id, resposta_sucesso())
+            elif sucesso is False:
+                marcar_erro(url, headers, cpf, "Nenhum turno em andamento encontrado.")
+            else:
+                log(f"Desistindo do CPF {cpf} depois de {MAX_TENTATIVAS} tentativas: {erro_msg}")
+                marcar_erro(url, headers, cpf, erro_msg)
 
 
 if __name__ == "__main__":
