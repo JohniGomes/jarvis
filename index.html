@@ -174,21 +174,6 @@
   .send-chatwoot-btn { font-family: inherit; font-size: 11.5px; font-weight: 600; color: #fff; background: #25D366; border: none; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
   .send-chatwoot-btn:disabled { opacity: 0.6; cursor: default; }
   #mainTable td:last-child { white-space: nowrap; }
-  .agenda-status { display: block; font-size: 11px; font-weight: 600; margin-bottom: 3px; white-space: nowrap; }
-  .agenda-status--liberado { color: #1a9e4a; }
-  .agenda-status--bloqueado { color: #8a8f98; }
-  .agenda-status--pendente { color: #b8860b; }
-  .agenda-btn { font-family: inherit; font-size: 11px; font-weight: 600; color: #fff; border: none; border-radius: 6px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
-  .agenda-btn:disabled { opacity: 0.6; cursor: default; }
-  .agenda-btn--liberar { background: #1a9e4a; }
-  .agenda-btn--bloquear { background: #c0392b; }
-  .agenda-hint { font-size: 11px; color: #8a8f98; white-space: nowrap; }
-  .agenda-erro { display: block; font-size: 10.5px; color: #c0392b; margin-top: 3px; cursor: help; white-space: normal; max-width: 140px; }
-  .agenda-avulso { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--border, #e4e7eb); margin-bottom: 6px; }
-  .agenda-avulso input[type="text"] { font-family: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid #cfd4da; border-radius: 6px; width: 170px; }
-  .agenda-avulso__msg { font-size: 12px; }
-  .agenda-avulso__msg--ok { color: #1a9e4a; }
-  .agenda-avulso__msg--erro { color: #c0392b; }
 
   footer.pagefoot { margin-top: 18px; font-size: 12px; color: var(--text-faint); text-align: center; }
 
@@ -246,13 +231,6 @@
       </div>
     </div>
     <div class="compare-note" id="compareNote"></div>
-    <div class="agenda-avulso">
-      <span><b>Liberar/Bloquear agendamento por CPF</b> &mdash; pra quem ainda n&atilde;o aparece na tabela (nunca rodou nenhum turno).</span>
-      <input type="text" id="agendaAvulsoCpf" placeholder="CPF (com ou sem pontos/tra&ccedil;o, pode colar)" maxlength="14">
-      <button type="button" class="agenda-btn agenda-btn--liberar" id="agendaAvulsoLiberar">Liberar</button>
-      <button type="button" class="agenda-btn agenda-btn--bloquear" id="agendaAvulsoBloquear">Bloquear</button>
-      <span class="agenda-avulso__msg" id="agendaAvulsoMsg"></span>
-    </div>
     <div class="table-scroll">
       <table id="mainTable">
         <thead>
@@ -266,7 +244,6 @@
             <th data-key="rotas" title="Corridas completadas">Rotas</th>
             <th data-key="taxa_aceite_pct">% Aceite</th>
             <th data-key="tempo_online_pct" title="Média do % de tempo online calculado pela plataforma em cada turno dessa pessoa">Tempo Online</th>
-            <th>Agendamento</th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -529,7 +506,6 @@
       supaFetchAll('entregadores', 'cpf.asc'),
       supaFetchAll('sem_corridas', 'cpf.asc'),
       supaFetchAll('chatwoot_envios', 'cpf.asc'),
-      supaFetchAll('agendamento_status', 'cpf.asc'),
       supaFetchAll('super_mais_envios', 'cpf.asc'),
     ])
       .then(function (results) {
@@ -549,12 +525,8 @@
         results[3].forEach(function (r) {
           chatwootEnviosCpfs[String(r.cpf || '')] = true;
         });
-        AGENDAMENTO_STATUS_BY_CPF = {};
-        results[4].forEach(function (r) {
-          AGENDAMENTO_STATUS_BY_CPF[String(r.cpf || '')] = { status: r.status, pendente: r.pendente, erro_msg: r.erro_msg };
-        });
         superMaisEnviosCpfs = {};
-        results[5].forEach(function (r) {
+        results[4].forEach(function (r) {
           superMaisEnviosCpfs[String(r.cpf || '')] = true;
         });
         loadingScreen.hidden = true;
@@ -860,10 +832,6 @@
     var digits = String(raw || '').replace(/\D/g, '');
     if (digits.length !== 11) return raw || '';
     return digits.slice(0, 3) + '.' + digits.slice(3, 6) + '.' + digits.slice(6, 9) + '-' + digits.slice(9);
-  }
-  function cpfDigitsByName(nome) {
-    var entry = POS_VENDAS_BY_NAME[normName(nome)];
-    return entry ? String(entry.cpf || '').replace(/\D/g, '') : '';
   }
   function cpfByName(nome) {
     var entry = POS_VENDAS_BY_NAME[normName(nome)];
@@ -1750,125 +1718,12 @@
         '<td>' + d1.canceladas.toLocaleString('pt-BR') + deltaPct(d1.canceladas, prev && prev.canceladas, c) + '</td>' +
         '<td>' + d1.rotas.toLocaleString('pt-BR') + deltaPct(d1.rotas, prev && prev.rotas, c) + '</td>' +
         '<td>' + barCell(d1.taxa_aceite_pct) + deltaPP(d1.taxa_aceite_pct, prev && prev.taxa_aceite_pct, c) + '</td>' +
-        '<td>' + barCell(d1.tempo_online_pct) + deltaPP(d1.tempo_online_pct, prev && prev.tempo_online_pct, c) + '</td>' +
-        '<td>' + agendamentoCellHtml(p.nome) + '</td>';
+        '<td>' + barCell(d1.tempo_online_pct) + deltaPP(d1.tempo_online_pct, prev && prev.tempo_online_pct, c) + '</td>';
       tbody.appendChild(tr);
     });
-
-    body_bindAgendamentoButtons(tbody);
   }
 
   // ---- Liberar/Bloquear Agendamento (elegibilidade de booking no franqueado) ----
-  // Estado vem da tabela agendamento_status (Supabase), alimentada pelo
-  // botão via a Edge Function agendamento-toggle e processada de verdade
-  // pelo vigia local (robots/agendamento_watcher.py) -- o clique aqui só
-  // marca um pedido pendente, não executa na hora.
-  var AGENDAMENTO_STATUS_BY_CPF = {};
-
-  function agendamentoCellHtml(nome) {
-    var cpfDigits = cpfDigitsByName(nome);
-    if (!cpfDigits) return '<span class="agenda-hint">sem CPF</span>';
-    var entry = AGENDAMENTO_STATUS_BY_CPF[cpfDigits];
-    var status = entry ? entry.status : 'bloqueado';
-    var pendente = entry ? entry.pendente : null;
-
-    if (pendente) {
-      var label = pendente === 'liberar' ? 'Liberando…' : 'Bloqueando…';
-      return '<span class="agenda-status agenda-status--pendente">' + label + '</span>';
-    }
-
-    var statusLabel = status === 'liberado'
-      ? '<span class="agenda-status agenda-status--liberado">Liberado</span>'
-      : '<span class="agenda-status agenda-status--bloqueado">Bloqueado</span>';
-    var acao = status === 'liberado' ? 'bloquear' : 'liberar';
-    var btnLabel = status === 'liberado' ? 'Bloquear' : 'Liberar';
-    var btnClass = status === 'liberado' ? 'agenda-btn agenda-btn--bloquear' : 'agenda-btn agenda-btn--liberar';
-    var erroHtml = entry && entry.erro_msg ? '<span class="agenda-erro" title="' + String(entry.erro_msg).replace(/"/g, '&quot;') + '">⚠ erro no último envio</span>' : '';
-    return statusLabel +
-      '<button type="button" class="' + btnClass + '" data-cpf="' + cpfDigits + '" data-acao="' + acao + '">' + btnLabel + '</button>' +
-      erroHtml;
-  }
-
-  function body_bindAgendamentoButtons(tbody) {
-    tbody.querySelectorAll('.agenda-btn').forEach(function (btn) {
-      btn.addEventListener('click', function () { toggleAgendamento(btn); });
-    });
-  }
-
-  function toggleAgendamento(btn) {
-    var cpf = btn.getAttribute('data-cpf');
-    var acao = btn.getAttribute('data-acao');
-    btn.disabled = true;
-    btn.textContent = acao === 'liberar' ? 'Liberando…' : 'Bloqueando…';
-    fetch(SUPABASE_URL + '/functions/v1/agendamento-toggle', {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ cpf: cpf, acao: acao }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        if (res && res.error) {
-          btn.disabled = false;
-          btn.textContent = acao === 'liberar' ? 'Liberar' : 'Bloquear';
-          alert('Erro: ' + res.error);
-          return;
-        }
-        AGENDAMENTO_STATUS_BY_CPF[cpf] = Object.assign({}, AGENDAMENTO_STATUS_BY_CPF[cpf], { pendente: acao, erro_msg: null });
-        renderTable();
-      })
-      .catch(function (err) {
-        btn.disabled = false;
-        btn.textContent = acao === 'liberar' ? 'Liberar' : 'Bloquear';
-        alert('Erro: ' + err.message);
-      });
-  }
-
-  // Liberar/Bloquear digitando o CPF direto -- pra quem ainda não tem
-  // nenhum turno no D-1 (recém-aprovado) e por isso não aparece na tabela
-  // de Desempenho, que só lista quem já rodou.
-  function toggleAgendamentoAvulso(acao) {
-    var input = document.getElementById('agendaAvulsoCpf');
-    var msg = document.getElementById('agendaAvulsoMsg');
-    var cpfDigits = input.value.replace(/\D/g, '');
-    if (cpfDigits.length !== 11) {
-      msg.className = 'agenda-avulso__msg agenda-avulso__msg--erro';
-      msg.textContent = 'CPF precisa ter 11 dígitos.';
-      return;
-    }
-    msg.className = 'agenda-avulso__msg';
-    msg.textContent = acao === 'liberar' ? 'Liberando…' : 'Bloqueando…';
-    fetch(SUPABASE_URL + '/functions/v1/agendamento-toggle', {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ cpf: cpfDigits, acao: acao }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        if (res && res.error) {
-          msg.className = 'agenda-avulso__msg agenda-avulso__msg--erro';
-          msg.textContent = res.error;
-          return;
-        }
-        AGENDAMENTO_STATUS_BY_CPF[cpfDigits] = Object.assign({}, AGENDAMENTO_STATUS_BY_CPF[cpfDigits], { pendente: acao, erro_msg: null });
-        msg.className = 'agenda-avulso__msg agenda-avulso__msg--ok';
-        msg.textContent = 'Pedido enviado — ' + (acao === 'liberar' ? 'liberando' : 'bloqueando') + '.';
-        input.value = '';
-        renderTable();
-      })
-      .catch(function (err) {
-        msg.className = 'agenda-avulso__msg agenda-avulso__msg--erro';
-        msg.textContent = err.message;
-      });
-  }
-
   var minDataDate = null, maxDataDate = null;
 
   function recompute() {
@@ -1982,8 +1837,6 @@
 
     document.getElementById('searchInput').addEventListener('input', renderTable);
     document.getElementById('turnoFilter').addEventListener('change', recompute);
-    document.getElementById('agendaAvulsoLiberar').addEventListener('click', function () { toggleAgendamentoAvulso('liberar'); });
-    document.getElementById('agendaAvulsoBloquear').addEventListener('click', function () { toggleAgendamentoAvulso('bloquear'); });
 
     document.querySelectorAll('.tab-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
