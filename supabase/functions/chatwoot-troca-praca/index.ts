@@ -79,38 +79,19 @@ const NOVATO_HORARIOS = [
   'Noturno - 21:30 à 00:00',
   'Madrugada - 00:00 à 01:00',
 ].join('\n');
-// Texto completo sobre formas de recebimento (pedido do usuário 06/08/2026,
-// substituiu uma versão mais curta só sobre repasse diário) -- usado tanto
-// na categoria geral de resposta pronta quanto na dúvida do novato sobre
-// repasse/recebimento.
-const TEXTO_REPASSE = [
-  '💰 Formas de recebimento:',
-  '',
-  '✅ Diário (ZapCash)',
-  'Receba amanhã o valor faturado hoje.',
-  'Taxa: 2,3%',
-  'WhatsApp: +55 11 3136-2074',
-  'Código: rayosp',
-  '',
-  '✅ Semanal',
-  'Receba na quarta-feira o valor faturado durante a semana.',
-  '⚠️ Para receber os repasses, é obrigatório emitir nota fiscal.',
-  'Caso precise, a DUES faz a emissão das notas e toda a assessoria do MEI.',
-  'DUES',
-  'Mensalidade: R$ 12,00',
-  'Contato: (41) 99899-3551',
-  'Código: 1957',
-].join('\n');
+// Mensagem de repasse/pagamento DESATIVADA por pedido do usuário
+// 10/08/2026 -- não deve mais mandar nada automaticamente sobre isso, nem
+// no fluxo de boas-vindas do novato, nem como resposta pronta avulsa.
+// Assunto financeiro fica só com atendimento humano a partir de agora.
 
 const NOVATO_AGENDAMENTO = 'Para se agendar, só enviar um Oi aqui. 11 93618-9622. Ok?';
-const NOVATO_INSTRUCOES_COMPLETAS = ['Show! Vou te mandar algumas instruções:', NOVATO_MAPA, '', NOVATO_HORARIOS, '', TEXTO_REPASSE, '', NOVATO_AGENDAMENTO].join('\n');
+const NOVATO_INSTRUCOES_COMPLETAS = ['Show! Vou te mandar algumas instruções:', NOVATO_MAPA, '', NOVATO_HORARIOS, '', NOVATO_AGENDAMENTO].join('\n');
 
 const NOVATO_RESPOSTAS: Record<string, string> = {
   sem_duvida: NOVATO_INSTRUCOES_COMPLETAS,
   duvida_generica: 'Qual sua dúvida?',
   duvida_mapa: NOVATO_MAPA,
   duvida_horario: NOVATO_HORARIOS,
-  duvida_repasse: TEXTO_REPASSE,
   duvida_agendamento: NOVATO_AGENDAMENTO,
 };
 
@@ -119,16 +100,13 @@ const NOVATO_RESPOSTAS: Record<string, string> = {
 // resposta, sem precisar de ida-e-volta nem executar nada no parceiro.
 // Pra adicionar uma nova categoria: 1) chave nova aqui com o texto exato,
 // 2) descrever quando usar em CATEGORIAS_RESPOSTA_PRONTA logo abaixo.
-const RESPOSTAS_PRONTAS: Record<string, string> = {
-  repasse: TEXTO_REPASSE,
-};
+// (vazio -- categoria "repasse" removida 10/08/2026)
+const RESPOSTAS_PRONTAS: Record<string, string> = {};
 
 // Descrição de cada categoria de resposta pronta, usada no prompt de
 // classificação -- a Claude escolhe entre essas categorias (uma delas) ou
 // "troca_praca" ou "outro".
-const CATEGORIAS_RESPOSTA_PRONTA: Record<string, string> = {
-  repasse: 'pergunta sobre repasse, recebimento, pagamento, como funciona receber o dinheiro das corridas -- ex.: "como recebo", "quando cai o dinheiro", "tem repasse diário", "como funciona o pagamento", "quero saber sobre o repasse"',
-};
+const CATEGORIAS_RESPOSTA_PRONTA: Record<string, string> = {};
 
 // Só fica ativo no horário do operador atual -- depois desse horário outra
 // pessoa assume o atendimento manualmente. Ajuste aqui se o horário mudar.
@@ -492,9 +470,10 @@ async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedi
     '     Se o atendente JÁ perguntou "Qual sua dúvida?" e essa resposta esclarece do que se trata:',
     '       sobre o mapa/localização -> novato_etapa: "duvida_mapa"',
     '       sobre horário/turnos -> novato_etapa: "duvida_horario"',
-    '       sobre repasse/pagamento/receber dinheiro -> novato_etapa: "duvida_repasse"',
     '       sobre como se agendar/começar a trabalhar -> novato_etapa: "duvida_agendamento"',
-    '     Não ficou claro o que a pessoa quer dizer -> novato_etapa: null (não adivinhe)',
+    '     Se a dúvida for sobre repasse/pagamento/receber dinheiro, OU não ficou claro do que se',
+    '       trata -> novato_etapa: null (assunto financeiro fica só com atendimento humano; não',
+    '       adivinhe o resto)',
     '',
     '5) Nenhum dos quatro (pagamento fora do listado acima, nota fiscal, reclamação, "bom dia"/',
     '   agradecimento sozinho, dúvida geral) -- todos os campos false/null.',
@@ -504,7 +483,7 @@ async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedi
     '',
     'Você recebe as últimas mensagens da conversa (mais recente por último, rotuladas "entregador"',
     'ou "atendente"). Responda APENAS um JSON válido, sem markdown, no formato:',
-    '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null, "eh_pedido_deslogar": true|false, "novato_etapa": "sem_duvida"|"duvida_generica"|"duvida_mapa"|"duvida_horario"|"duvida_repasse"|"duvida_agendamento" ou null}',
+    '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null, "eh_pedido_deslogar": true|false, "novato_etapa": "sem_duvida"|"duvida_generica"|"duvida_mapa"|"duvida_horario"|"duvida_agendamento" ou null}',
     '',
     'praca_codigo só deve vir preenchido se uma praça específica da lista foi mencionada com clareza.',
     'No máximo UM entre eh_pedido_troca, categoria, eh_pedido_deslogar e novato_etapa deve indicar',
