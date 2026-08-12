@@ -115,6 +115,22 @@ def _parsear_linha(texto_linha):
     }
 
 
+def _linhas_da_pagina_com_espera(page):
+    """Lê as linhas da página atual, esperando um pouco mais se vier vazia
+    -- via proxy residencial (GitHub Actions) o clique em "Próximo" dispara
+    uma busca assíncrona e a tabela fica vazia/desatualizada por um
+    instante depois do clique. Bug real visto em produção 12/08/2026: com
+    espera fixa de 1s, a leitura da página 2 pegava a tabela ainda vazia,
+    concluía (errado) que tinha acabado e parava com só 10 de ~164 linhas."""
+    for _ in range(4):
+        linhas = page.locator("table tbody tr")
+        total = linhas.count()
+        if total > 0:
+            return linhas, total
+        page.wait_for_timeout(1500)
+    return page.locator("table tbody tr"), 0
+
+
 def ler_todas_as_escalas(page):
     page.goto(SHIFT_SCHEDULE_URL)
     page.wait_for_timeout(2000)
@@ -122,8 +138,7 @@ def ler_todas_as_escalas(page):
     registros = []
     pagina = 1
     while True:
-        linhas = page.locator("table tbody tr")
-        total_pagina = linhas.count()
+        linhas, total_pagina = _linhas_da_pagina_com_espera(page)
         for i in range(total_pagina):
             texto = linhas.nth(i).inner_text()
             registro = _parsear_linha(texto)
@@ -131,10 +146,14 @@ def ler_todas_as_escalas(page):
                 registros.append(registro)
 
         proximo = page.get_by_role("button", name=re.compile("^Pr.ximo$", re.I))
+        for _ in range(3):
+            if proximo.count() > 0 and proximo.first.is_enabled():
+                break
+            page.wait_for_timeout(1000)
         if proximo.count() == 0 or not proximo.first.is_enabled():
             break
         proximo.first.click()
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(2500)
         pagina += 1
         if pagina > MAX_PAGINAS:
             log(f"Atingiu o limite de segurança de {MAX_PAGINAS} páginas -- parando.")
