@@ -292,6 +292,10 @@
           </div>
           <button type="button" id="escalasVagasRefreshBtn">Atualizar</button>
         </div>
+        <div class="sim-card__row" style="margin-top: 10px; gap: 8px;">
+          <select id="escalasVagasTurnoFilter"><option value="">Todos os turnos</option></select>
+          <select id="escalasVagasAreaFilter"><option value="">Todas as regi&otilde;es</option></select>
+        </div>
         <div class="table-scroll" style="margin-top: 10px;">
           <table class="mini-table">
             <thead><tr><th>Turno</th><th>Regi&atilde;o</th><th>Preenchimento</th><th>%</th></tr></thead>
@@ -1201,11 +1205,44 @@
   var ESCALAS_VAGAS_POLL_INTERVAL_MS = 8000;
   var ESCALAS_VAGAS_SELECT = 'turno,area_origem,regular_preenchido,regular_total,sincronizado_em';
 
-  function renderEscalasVagas(rows) {
+  var escalasVagasAllRows = [];
+
+  function populateEscalasVagasFilters(rows) {
+    var turnoSelect = document.getElementById('escalasVagasTurnoFilter');
+    var areaSelect = document.getElementById('escalasVagasAreaFilter');
+    var turnoAtual = turnoSelect.value;
+    var areaAtual = areaSelect.value;
+
+    var turnos = [];
+    var areas = [];
+    rows.forEach(function (r) {
+      if (turnos.indexOf(r.turno) === -1) turnos.push(r.turno);
+      if (areas.indexOf(r.area_origem) === -1) areas.push(r.area_origem);
+    });
+    turnos.sort();
+    areas.sort();
+
+    turnoSelect.innerHTML = '<option value="">Todos os turnos</option>' +
+      turnos.map(function (t) { return '<option value="' + t + '">' + t + '</option>'; }).join('');
+    areaSelect.innerHTML = '<option value="">Todas as regiões</option>' +
+      areas.map(function (a) { return '<option value="' + a + '">' + a + '</option>'; }).join('');
+
+    // Mantém a seleção anterior se ainda existir na nova lista.
+    if (turnos.indexOf(turnoAtual) !== -1) turnoSelect.value = turnoAtual;
+    if (areas.indexOf(areaAtual) !== -1) areaSelect.value = areaAtual;
+  }
+
+  function renderEscalasVagasFiltered() {
     var body = document.getElementById('escalasVagasBody');
-    var hint = document.getElementById('escalasVagasHint');
-    if (!rows || !rows.length) {
-      body.innerHTML = '<tr><td colspan="4">Nenhum dado ainda — clique em Atualizar.</td></tr>';
+    var turnoFiltro = document.getElementById('escalasVagasTurnoFilter').value;
+    var areaFiltro = document.getElementById('escalasVagasAreaFilter').value;
+
+    var rows = escalasVagasAllRows.filter(function (r) {
+      return (!turnoFiltro || r.turno === turnoFiltro) && (!areaFiltro || r.area_origem === areaFiltro);
+    });
+
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="4">' + (escalasVagasAllRows.length ? 'Nenhum resultado pra esse filtro.' : 'Nenhum dado ainda — clique em Atualizar.') + '</td></tr>';
       return;
     }
     // Várias linhas de modal podem existir pra mesma região+turno (ex.:
@@ -1232,10 +1269,17 @@
         '<td style="color:' + cor + ';font-weight:600;">' + pct + '%</td>' +
         '</tr>';
     }).join('');
-    var maisRecente = rows.reduce(function (max, r) { return r.sincronizado_em > max ? r.sincronizado_em : max; }, '');
+  }
+
+  function setEscalasVagasData(rows) {
+    escalasVagasAllRows = rows || [];
+    var hint = document.getElementById('escalasVagasHint');
+    var maisRecente = escalasVagasAllRows.reduce(function (max, r) { return r.sincronizado_em > max ? r.sincronizado_em : max; }, '');
     if (maisRecente) {
       hint.textContent = 'Última atualização: ' + new Date(maisRecente).toLocaleString('pt-BR');
     }
+    populateEscalasVagasFilters(escalasVagasAllRows);
+    renderEscalasVagasFiltered();
   }
 
   function fetchEscalasVagas() {
@@ -1248,7 +1292,7 @@
   }
 
   function loadEscalasVagas() {
-    fetchEscalasVagas().then(renderEscalasVagas).catch(function () {});
+    fetchEscalasVagas().then(setEscalasVagasData).catch(function () {});
   }
 
   function refreshEscalasVagas() {
@@ -1297,7 +1341,7 @@
       var atualizou = rows && rows.length &&
         new Date(rows[0].sincronizado_em).getTime() > new Date(horaDisparo).getTime();
       if (atualizou) {
-        renderEscalasVagas(rows);
+        setEscalasVagasData(rows);
         btn.disabled = false;
         btn.textContent = 'Atualizar';
         return;
@@ -1986,6 +2030,8 @@
     document.getElementById('simRange').addEventListener('input', renderSimulator);
     document.getElementById('aiSummaryBtn').addEventListener('click', requestAiSummary);
     document.getElementById('escalasVagasRefreshBtn').addEventListener('click', refreshEscalasVagas);
+    document.getElementById('escalasVagasTurnoFilter').addEventListener('change', renderEscalasVagasFiltered);
+    document.getElementById('escalasVagasAreaFilter').addEventListener('change', renderEscalasVagasFiltered);
     loadEscalasVagas();
 
     var weekSelect = document.getElementById('campWeekSelect');
