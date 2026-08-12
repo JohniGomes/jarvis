@@ -290,12 +290,16 @@
             <div class="sim-card__title">Preenchimento de vagas por regi&atilde;o e turno</div>
             <div class="sim-card__hint" id="escalasVagasHint">Dados do Gestor de Escalas (hoje). Clique em Atualizar pra buscar o mais recente.</div>
           </div>
-          <button type="button" id="escalasVagasRefreshBtn">Atualizar</button>
+          <div class="sim-card__control">
+            <span class="sim-card__val" id="escalasVagasGeralPct">–</span>
+            <button type="button" id="escalasVagasRefreshBtn">Atualizar</button>
+          </div>
         </div>
         <div class="sim-card__row" style="margin-top: 10px; gap: 8px;">
           <select id="escalasVagasTurnoFilter"><option value="">Todos os turnos</option></select>
           <select id="escalasVagasAreaFilter"><option value="">Todas as regi&otilde;es</option></select>
         </div>
+        <div id="escalasVagasChart" style="margin-top: 10px;"></div>
         <div class="table-scroll" style="margin-top: 10px;">
           <table class="mini-table">
             <thead><tr><th>Turno</th><th>Regi&atilde;o</th><th>Preenchimento</th><th>%</th></tr></thead>
@@ -1232,14 +1236,53 @@
     if (areas.indexOf(areaAtual) !== -1) areaSelect.value = areaAtual;
   }
 
+  function escalasVagasPct(rows) {
+    var preenchido = 0, total = 0;
+    rows.forEach(function (r) { preenchido += r.regular_preenchido; total += r.regular_total; });
+    return total ? Math.round(1000 * preenchido / total) / 10 : 0;
+  }
+
+  function renderEscalasVagasChart(areaFiltro) {
+    var rows = escalasVagasAllRows.filter(function (r) { return !areaFiltro || r.area_origem === areaFiltro; });
+    var porTurno = {};
+    rows.forEach(function (r) {
+      if (!porTurno[r.turno]) porTurno[r.turno] = { preenchido: 0, total: 0 };
+      porTurno[r.turno].preenchido += r.regular_preenchido;
+      porTurno[r.turno].total += r.regular_total;
+    });
+    // Mesma ordem cronológica usada nos outros gráficos do painel
+    // (PERIODO_ORDER) -- turnos fora dessa lista (raro, praça nova) vão
+    // pro final, na ordem em que apareceram. O texto do turno vem direto
+    // do robô de leitura de escalas com "h" minúsculo no horário (ex.:
+    // "M8 MANHA 06h00-07h59"), diferente de PERIODO_ORDER/PERIODO_SHORT
+    // (sempre maiúsculo) -- compara/busca sempre em maiúsculas.
+    var turnos = Object.keys(porTurno).sort(function (a, b) {
+      var ia = PERIODO_ORDER.indexOf(a.toUpperCase()), ib = PERIODO_ORDER.indexOf(b.toUpperCase());
+      if (ia === -1) ia = 999;
+      if (ib === -1) ib = 999;
+      return ia - ib;
+    });
+    var data = turnos.map(function (t) {
+      var g = porTurno[t];
+      return { turno: t, pct: g.total ? Math.round(1000 * g.preenchido / g.total) / 10 : 0 };
+    });
+    renderLineChart('escalasVagasChart', data, {
+      labelFor: function (d) { return PERIODO_SHORT[d.turno.toUpperCase()] || d.turno; },
+    });
+  }
+
   function renderEscalasVagasFiltered() {
     var body = document.getElementById('escalasVagasBody');
+    var geralEl = document.getElementById('escalasVagasGeralPct');
     var turnoFiltro = document.getElementById('escalasVagasTurnoFilter').value;
     var areaFiltro = document.getElementById('escalasVagasAreaFilter').value;
 
     var rows = escalasVagasAllRows.filter(function (r) {
       return (!turnoFiltro || r.turno === turnoFiltro) && (!areaFiltro || r.area_origem === areaFiltro);
     });
+
+    geralEl.textContent = rows.length ? (escalasVagasPct(rows) + '% geral') : '–';
+    renderEscalasVagasChart(areaFiltro);
 
     if (!rows.length) {
       body.innerHTML = '<tr><td colspan="4">' + (escalasVagasAllRows.length ? 'Nenhum resultado pra esse filtro.' : 'Nenhum dado ainda — clique em Atualizar.') + '</td></tr>';
