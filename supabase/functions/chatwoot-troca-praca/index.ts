@@ -186,38 +186,58 @@ Deno.serve(async (req: Request) => {
         continue; // nada mudou nessa conversa desde a última checagem
       }
 
-      // Não confia no resumo "last_non_activity_message" da listagem -- se
-      // alguém (humano ou não) responder entre um ciclo e outro, ele deixa
-      // de ser a mensagem do entregador e o pedido original fica invisível.
-      // Busca as mensagens de verdade e acha a última do entregador.
-      const mensagensCru = await mensagensCruas(chatwootToken, conv.id);
+      // Cada conversa é isolada num try/catch -- bug real visto em produção
+      // 12/08/2026: o cursor era gravado ANTES do processamento terminar, e
+      // uma falha no meio do lote (ex.: Claude sem crédito) tanto travava
+      // TODAS as conversas seguintes desse ciclo (exceção não tratada saía
+      // do for inteiro) quanto marcava a conversa que estava em andamento
+      // como "já vista" sem nunca ter sido processada de verdade -- ela
+      // nunca mais seria tentada de novo, mesmo em ciclos futuros. Agora só
+      // marca o cursor depois de um caminho concluído com sucesso (mesmo
+      // que o "sucesso" seja só "nada a fazer aqui"), e uma conversa com
+      // erro não impede as outras de serem processadas no mesmo ciclo.
+      try {
+        // Não confia no resumo "last_non_activity_message" da listagem -- se
+        // alguém (humano ou não) responder entre um ciclo e outro, ele deixa
+        // de ser a mensagem do entregador e o pedido original fica invisível.
+        // Busca as mensagens de verdade e acha a última do entregador.
+        const mensagensCru = await mensagensCruas(chatwootToken, conv.id);
 
-      await supabase.from('chatwoot_conversas_cursor').upsert({
-        conversation_id: conv.id,
-        last_activity_at: conv.last_activity_at,
-        checado_em: new Date().toISOString(),
-      });
-      const ultimaDoContato = [...mensagensCru].reverse().find(
-        (m: any) => (m.sender_type === 'Contact' || m.sender?.type === 'contact') && m.content?.trim(),
-      );
-      if (!ultimaDoContato) continue;
+        const ultimaDoContato = [...mensagensCru].reverse().find(
+          (m: any) => (m.sender_type === 'Contact' || m.sender?.type === 'contact') && m.content?.trim(),
+        );
+        if (!ultimaDoContato) {
+          await atualizarCursor(supabase, conv);
+          continue;
+        }
 
-      const { data: jaProcessada } = await supabase
-        .from('chatwoot_mensagens_processadas')
-        .select('message_id')
-        .eq('message_id', ultimaDoContato.id)
-        .maybeSingle();
-      if (jaProcessada) continue;
+        const { data: jaProcessada } = await supabase
+          .from('chatwoot_mensagens_processadas')
+          .select('message_id')
+          .eq('message_id', ultimaDoContato.id)
+          .maybeSingle();
+        if (jaProcessada) {
+          await atualizarCursor(supabase, conv);
+          continue;
+        }
 
-      const contexto = paraContexto(mensagensCru, MENSAGENS_DE_CONTEXTO);
-      const resultado = await processarMensagem(supabase, chatwootToken, conv.id, ultimaDoContato, contexto);
-      processados.push({ conversation_id: conv.id, message_id: ultimaDoContato.id, ...resultado });
+        const contexto = paraContexto(mensagensCru, MENSAGENS_DE_CONTEXTO);
+        const resultado = await processarMensagem(supabase, chatwootToken, conv.id, ultimaDoContato, contexto);
+        processados.push({ conversation_id: conv.id, message_id: ultimaDoContato.id, ...resultado });
 
-      await supabase.from('chatwoot_mensagens_processadas').insert({
-        message_id: ultimaDoContato.id,
-        conversation_id: conv.id,
-        acao: resultado.acao,
-      });
+        await supabase.from('chatwoot_mensagens_processadas').insert({
+          message_id: ultimaDoContato.id,
+          conversation_id: conv.id,
+          acao: resultado.acao,
+        });
+
+        await atualizarCursor(supabase, conv);
+      } catch (err) {
+        console.error(`Falha processando conversa ${conv.id}:`, err);
+        // Cursor de propósito NÃO atualizado -- tenta essa conversa nesse
+        // estado de novo no próximo ciclo (1 min depois) em vez de ficar
+        // travada pra sempre.
+      }
     }
 
     return jsonResponse({ ok: true, conversas_verificadas: conversas.length, processados });
@@ -225,6 +245,14 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: String(err) }, 500);
   }
 });
+
+async function atualizarCursor(supabase: any, conv: any) {
+  await supabase.from('chatwoot_conversas_cursor').upsert({
+    conversation_id: conv.id,
+    last_activity_at: conv.last_activity_at,
+    checado_em: new Date().toISOString(),
+  });
+}
 
 async function listarConversasAbertas(token: string) {
   const base = `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}`;
