@@ -29,7 +29,7 @@ SHEET_ID = "1DJoKoGGdeSceaQio64fdXNCoahoyJCQ_4zVG42L1XNA"
 SHEET_GID = "1758304617"
 SHEET_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
 
-MAX_TENTATIVAS = 4
+MAX_TENTATIVAS = 6
 UPLOAD_TMP_PATH = "robots/elegibilidade_upload_tmp.csv"
 
 
@@ -106,6 +106,11 @@ def _enviar_com_retry(p, csv_texto):
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         browser = launch_browser(p.chromium)
         page = browser.new_page(accept_downloads=True)
+        # Padrão do Playwright pra navegação (30s) estoura direto via proxy
+        # residencial em horários de mais latência/congestionamento do
+        # Akamai -- dá mais fôlego antes de desistir e cair pro retry.
+        page.set_default_navigation_timeout(60000)
+        page.set_default_timeout(45000)
         try:
             log("Login em franqueado.entregolog.com...")
             franqueado_login(page)
@@ -122,7 +127,7 @@ def _enviar_com_retry(p, csv_texto):
                 pass
             browser.close()
             if tentativa < MAX_TENTATIVAS:
-                time.sleep(8)
+                time.sleep(15)
     raise ultimo_erro
 
 
