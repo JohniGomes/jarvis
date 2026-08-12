@@ -226,3 +226,29 @@ drop policy if exists "automacao_config leitura publica" on automacao_config;
 create policy "automacao_config leitura publica" on automacao_config for select using (true);
 drop policy if exists "automacao_config escrita publica" on automacao_config;
 create policy "automacao_config escrita publica" on automacao_config for update using (true);
+
+-- ============================================================================
+-- escalas_vagas: snapshot do preenchimento de vagas por região+turno, lido
+-- do Gestor de Escalas (robots/escalas_vagas.py). Pedido do usuário
+-- 12/08/2026: ver o % de preenchimento por região/turno na aba Análise,
+-- com um botão "Atualizar" que dispara o robô ao vivo. Cada sincronização
+-- apaga e regrava o dia inteiro (não é incremental -- reflete o estado
+-- atual completo do gestor de escalas no momento da leitura).
+-- ============================================================================
+create table if not exists escalas_vagas (
+  id bigint generated always as identity primary key,
+  data date not null,
+  turno text not null,
+  area_origem text not null,
+  modal text,
+  regular_preenchido int not null default 0,
+  regular_total int not null default 0,
+  excesso_preenchido int not null default 0,
+  excesso_total int not null default 0,
+  sincronizado_em timestamptz not null default now()
+);
+create index if not exists escalas_vagas_data_idx on escalas_vagas (data);
+
+alter table escalas_vagas enable row level security;
+drop policy if exists "escalas_vagas leitura publica" on escalas_vagas;
+create policy "escalas_vagas leitura publica" on escalas_vagas for select using (true);

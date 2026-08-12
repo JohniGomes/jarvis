@@ -1,0 +1,39 @@
+name: Sync Escalas (preenchimento de vagas)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependências
+        run: |
+          pip install -r robots/requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Ler preenchimento de vagas no Gestor de Escalas
+        env:
+          FRANQUEADO_EMAIL: ${{ secrets.FRANQUEADO_EMAIL }}
+          FRANQUEADO_PASSWORD: ${{ secrets.FRANQUEADO_PASSWORD }}
+          EMAIL_IMAP_PASSWORD: ${{ secrets.EMAIL_IMAP_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
+          PROXY_USERNAME: ${{ secrets.PROXY_USERNAME }}
+          PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+        run: python -m robots.escalas_vagas
+
+      - name: Salvar screenshot de erro (se falhar)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-escalas-vagas
+          path: robots/debug_escalas_vagas_*.png
+          if-no-files-found: ignore

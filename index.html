@@ -284,6 +284,22 @@
         <div id="diaChart" style="margin-top: 10px;"></div>
       </div>
 
+      <div class="sim-card">
+        <div class="sim-card__row">
+          <div>
+            <div class="sim-card__title">Preenchimento de vagas por regi&atilde;o e turno</div>
+            <div class="sim-card__hint" id="escalasVagasHint">Dados do Gestor de Escalas (hoje). Clique em Atualizar pra buscar o mais recente.</div>
+          </div>
+          <button type="button" id="escalasVagasRefreshBtn">Atualizar</button>
+        </div>
+        <div class="table-scroll" style="margin-top: 10px;">
+          <table class="mini-table">
+            <thead><tr><th>Turno</th><th>Regi&atilde;o</th><th>Preenchimento</th><th>%</th></tr></thead>
+            <tbody id="escalasVagasBody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="ai-card">
         <div class="ai-card__row">
           <div class="sim-card__title">Resumo com IA</div>
@@ -1181,6 +1197,123 @@
     };
   }
 
+  var ESCALAS_VAGAS_POLL_MAX_MS = 150000; // folga em cima do ~1-2min que o robô costuma levar
+  var ESCALAS_VAGAS_POLL_INTERVAL_MS = 8000;
+  var ESCALAS_VAGAS_SELECT = 'turno,area_origem,regular_preenchido,regular_total,sincronizado_em';
+
+  function renderEscalasVagas(rows) {
+    var body = document.getElementById('escalasVagasBody');
+    var hint = document.getElementById('escalasVagasHint');
+    if (!rows || !rows.length) {
+      body.innerHTML = '<tr><td colspan="4">Nenhum dado ainda — clique em Atualizar.</td></tr>';
+      return;
+    }
+    // Várias linhas de modal podem existir pra mesma região+turno (ex.:
+    // MOTORCYCLE e "4 selecionados" separados) -- soma antes de exibir.
+    var grupos = {};
+    var ordem = [];
+    rows.forEach(function (r) {
+      var chave = r.turno + '||' + r.area_origem;
+      if (!grupos[chave]) {
+        grupos[chave] = { turno: r.turno, area: r.area_origem, preenchido: 0, total: 0 };
+        ordem.push(chave);
+      }
+      grupos[chave].preenchido += r.regular_preenchido;
+      grupos[chave].total += r.regular_total;
+    });
+    body.innerHTML = ordem.map(function (chave) {
+      var g = grupos[chave];
+      var pct = g.total ? Math.round(1000 * g.preenchido / g.total) / 10 : 0;
+      var cor = pct >= 80 ? '#1a9e4a' : (pct >= 40 ? '#b8860b' : '#c0392b');
+      return '<tr>' +
+        '<td>' + g.turno + '</td>' +
+        '<td>' + g.area + '</td>' +
+        '<td>' + g.preenchido + '/' + g.total + '</td>' +
+        '<td style="color:' + cor + ';font-weight:600;">' + pct + '%</td>' +
+        '</tr>';
+    }).join('');
+    var maisRecente = rows.reduce(function (max, r) { return r.sincronizado_em > max ? r.sincronizado_em : max; }, '');
+    if (maisRecente) {
+      hint.textContent = 'Última atualização: ' + new Date(maisRecente).toLocaleString('pt-BR');
+    }
+  }
+
+  function fetchEscalasVagas() {
+    return fetch(SUPABASE_URL + '/rest/v1/escalas_vagas?select=' + ESCALAS_VAGAS_SELECT + '&order=turno.asc,area_origem.asc', {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+      },
+    }).then(function (r) { return r.json(); });
+  }
+
+  function loadEscalasVagas() {
+    fetchEscalasVagas().then(renderEscalasVagas).catch(function () {});
+  }
+
+  function refreshEscalasVagas() {
+    var btn = document.getElementById('escalasVagasRefreshBtn');
+    var hint = document.getElementById('escalasVagasHint');
+    btn.disabled = true;
+    btn.textContent = 'Atualizando…';
+    hint.textContent = 'Buscando dados no Gestor de Escalas agora — pode levar 1 a 2 minutos.';
+
+    var horaDisparo = new Date().toISOString();
+
+    fetch(SUPABASE_URL + '/functions/v1/escalas-refresh', {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+    })
+      .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+      .then(function (res) {
+        if (res.body && res.body.error) {
+          btn.disabled = false;
+          btn.textContent = 'Atualizar';
+          hint.textContent = 'Erro ao disparar atualização: ' + res.body.error;
+          return;
+        }
+        pollEscalasVagas(horaDisparo, Date.now());
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = 'Atualizar';
+        hint.textContent = 'Erro ao disparar atualização: ' + err;
+      });
+  }
+
+  function pollEscalasVagas(horaDisparo, inicioMs) {
+    var btn = document.getElementById('escalasVagasRefreshBtn');
+    var hint = document.getElementById('escalasVagasHint');
+
+    fetchEscalasVagas().then(function (rows) {
+      // Comparação por Date (não string) -- sincronizado_em vem com offset
+      // -03:00 do robô, horaDisparo vem em UTC ("Z") do navegador; comparar
+      // as strings ISO direto dá resultado errado quando os formatos de
+      // fuso são diferentes.
+      var atualizou = rows && rows.length &&
+        new Date(rows[0].sincronizado_em).getTime() > new Date(horaDisparo).getTime();
+      if (atualizou) {
+        renderEscalasVagas(rows);
+        btn.disabled = false;
+        btn.textContent = 'Atualizar';
+        return;
+      }
+      if (Date.now() - inicioMs > ESCALAS_VAGAS_POLL_MAX_MS) {
+        btn.disabled = false;
+        btn.textContent = 'Atualizar';
+        hint.textContent = 'Não deu tempo de confirmar a atualização (pode ainda estar rodando) — tente Atualizar de novo em instantes.';
+        return;
+      }
+      setTimeout(function () { pollEscalasVagas(horaDisparo, inicioMs); }, ESCALAS_VAGAS_POLL_INTERVAL_MS);
+    }).catch(function () {
+      setTimeout(function () { pollEscalasVagas(horaDisparo, inicioMs); }, ESCALAS_VAGAS_POLL_INTERVAL_MS);
+    });
+  }
+
   function requestAiSummary() {
     var btn = document.getElementById('aiSummaryBtn');
     var out = document.getElementById('aiSummaryResult');
@@ -1852,6 +1985,8 @@
     });
     document.getElementById('simRange').addEventListener('input', renderSimulator);
     document.getElementById('aiSummaryBtn').addEventListener('click', requestAiSummary);
+    document.getElementById('escalasVagasRefreshBtn').addEventListener('click', refreshEscalasVagas);
+    loadEscalasVagas();
 
     var weekSelect = document.getElementById('campWeekSelect');
     CAMP_WEEKS.forEach(function (w, i) {
