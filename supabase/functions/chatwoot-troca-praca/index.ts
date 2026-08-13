@@ -192,22 +192,22 @@ Deno.serve(async (req: Request) => {
       (cursores || []).map((c: any) => [c.conversation_id, c.last_activity_at]),
     );
 
+    // Fase 1: descobre quais conversas têm mensagem nova de entregador
+    // ainda não processada. As que não precisam de Claude (sem mensagem de
+    // contato, ou mensagem repetida) já são resolvidas aqui direto.
+    const pendentes: { conv: any; msg: any; contexto: string[] }[] = [];
     for (const conv of conversas) {
       const cursorAnterior = cursorPorConversa.get(conv.id);
       if (cursorAnterior !== undefined && cursorAnterior === conv.last_activity_at) {
         continue; // nada mudou nessa conversa desde a última checagem
       }
 
-      // Cada conversa é isolada num try/catch -- bug real visto em produção
-      // 12/08/2026: o cursor era gravado ANTES do processamento terminar, e
-      // uma falha no meio do lote (ex.: Claude sem crédito) tanto travava
-      // TODAS as conversas seguintes desse ciclo (exceção não tratada saía
-      // do for inteiro) quanto marcava a conversa que estava em andamento
-      // como "já vista" sem nunca ter sido processada de verdade -- ela
-      // nunca mais seria tentada de novo, mesmo em ciclos futuros. Agora só
-      // marca o cursor depois de um caminho concluído com sucesso (mesmo
-      // que o "sucesso" seja só "nada a fazer aqui"), e uma conversa com
-      // erro não impede as outras de serem processadas no mesmo ciclo.
+      // Bug real visto em produção 12/08/2026: o cursor era gravado ANTES
+      // do processamento terminar -- uma falha aqui (ex.: Chatwoot fora do
+      // ar) marcava a conversa como "já vista" sem nunca ter sido
+      // processada de verdade. Só marca o cursor depois de um caminho
+      // concluído com sucesso (mesmo que o "sucesso" seja só "nada a fazer
+      // aqui"), e uma conversa com erro não impede as outras.
       try {
         // Não confia no resumo "last_non_activity_message" da listagem -- se
         // alguém (humano ou não) responder entre um ciclo e outro, ele deixa
@@ -234,25 +234,48 @@ Deno.serve(async (req: Request) => {
         }
 
         const contexto = paraContexto(mensagensCru, MENSAGENS_DE_CONTEXTO);
-        const resultado = await processarMensagem(supabase, chatwootToken, conv.id, ultimaDoContato, contexto);
-        processados.push({ conversation_id: conv.id, message_id: ultimaDoContato.id, ...resultado });
-
-        await supabase.from('chatwoot_mensagens_processadas').insert({
-          message_id: ultimaDoContato.id,
-          conversation_id: conv.id,
-          acao: resultado.acao,
-        });
-
-        await atualizarCursor(supabase, conv);
+        pendentes.push({ conv, msg: ultimaDoContato, contexto });
       } catch (err) {
-        console.error(`Falha processando conversa ${conv.id}:`, err);
-        // Cursor de propósito NÃO atualizado -- tenta essa conversa nesse
-        // estado de novo no próximo ciclo (1 min depois) em vez de ficar
-        // travada pra sempre.
+        console.error(`Falha buscando mensagens da conversa ${conv.id}:`, err);
+        // Cursor de propósito NÃO atualizado -- tenta de novo no próximo ciclo.
       }
     }
 
-    return jsonResponse({ ok: true, conversas_verificadas: conversas.length, processados });
+    // Fase 2: classifica em lotes (poucas chamadas à Claude em vez de 1 por
+    // conversa -- as instruções fixas do prompt são pagas 1x por lote, não
+    // 1x por conversa) e executa a ação de cada uma.
+    for (let inicio = 0; inicio < pendentes.length; inicio += CLASSIFICACAO_LOTE_TAMANHO) {
+      const lote = pendentes.slice(inicio, inicio + CLASSIFICACAO_LOTE_TAMANHO);
+
+      let classificacoes: (Classificacao | null)[];
+      try {
+        classificacoes = await classificarPedidosEmLote(lote.map((p) => p.contexto));
+      } catch (err) {
+        console.error(`Falha classificando lote de ${lote.length} conversa(s):`, err);
+        continue; // nenhuma dessas teve o cursor atualizado -- tenta de novo no próximo ciclo
+      }
+
+      for (let i = 0; i < lote.length; i++) {
+        const { conv, msg } = lote[i];
+        try {
+          const resultado = await executarClassificacao(supabase, chatwootToken, conv.id, msg, classificacoes[i]);
+          processados.push({ conversation_id: conv.id, message_id: msg.id, ...resultado });
+
+          await supabase.from('chatwoot_mensagens_processadas').insert({
+            message_id: msg.id,
+            conversation_id: conv.id,
+            acao: resultado.acao,
+          });
+
+          await atualizarCursor(supabase, conv);
+        } catch (err) {
+          console.error(`Falha processando conversa ${conv.id}:`, err);
+          // Cursor de propósito NÃO atualizado -- tenta de novo no próximo ciclo.
+        }
+      }
+    }
+
+    return jsonResponse({ ok: true, conversas_verificadas: conversas.length, pendentes: pendentes.length, processados });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }
@@ -384,10 +407,13 @@ async function identificarEntregador(supabase: any, telefone: string | undefined
 // ("Feito."). Qualquer outra coisa (praça não clara, entregador não
 // identificado, não é pedido de troca, falhou) fica em silêncio total,
 // sem responder nada -- atendimento humano assume.
-async function processarMensagem(supabase: any, chatwootToken: string, conversationId: number, msg: any, contexto: string[]) {
+//
+// Recebe a classificação já pronta (calculada em lote junto com outras
+// conversas do mesmo ciclo, ver classificarPedidosEmLote) em vez de
+// chamar a Claude aqui -- decisão do usuário 13/08/2026 pra reduzir
+// custo depois de estender o horário do bot.
+async function executarClassificacao(supabase: any, chatwootToken: string, conversationId: number, msg: any, classificacao: Classificacao | null) {
   const telefone = msg?.sender?.phone_number || msg?.conversation?.contact_inbox?.source_id;
-
-  const classificacao = await classificarPedidoCompleto(contexto);
 
   if (classificacao?.eh_pedido_deslogar) {
     const entregador = await identificarEntregador(supabase, telefone, msg?.sender?.name);
@@ -470,13 +496,29 @@ async function executarEResponder(supabase: any, chatwootToken: string, conversa
   return { acao: sucesso ? 'troca_executada' : 'troca_falhou_sem_resposta', praca: pracaCodigo, resultado };
 }
 
-// classificarPedidoCompleto: primeira mensagem da conversa (sem estado ainda)
-// -- decide entre 3 caminhos: troca de praça (com ou sem praça definida),
-// uma categoria de resposta pronta (RESPOSTAS_PRONTAS), ou nenhum dos dois.
-async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedido_troca: boolean; praca_codigo: string | null; categoria: string | null; eh_pedido_deslogar: boolean; novato_etapa: string | null } | null> {
+type Classificacao = {
+  eh_pedido_troca: boolean;
+  praca_codigo: string | null;
+  categoria: string | null;
+  eh_pedido_deslogar: boolean;
+  novato_etapa: string | null;
+};
+
+// Quantas conversas entram numa chamada só à Claude. Decisão do usuário
+// 13/08/2026: depois de estender o horário do bot pra quase 24h (mais
+// mensagens = mais gasto), testamos prompt caching mas o texto fixo de
+// instruções (~1450 tokens) fica ABAIXO do mínimo cacheável da Haiku
+// (2048 tokens) -- confirmado ao vivo (cache_read_input_tokens sempre 0).
+// Em vez disso, processa várias conversas pendentes numa chamada só: as
+// instruções fixas são pagas 1x por lote, não 1x por conversa. Lote
+// grande demais arrisca estourar max_tokens da resposta (JSON truncado =
+// lote inteiro perdido) -- 15 é uma margem confortável.
+const CLASSIFICACAO_LOTE_TAMANHO = 15;
+
+function promptClassificacaoBase(): string {
   const listaPracas = Object.entries(PRACAS).map(([cod, nome]) => `${cod} = "${nome}"`).join('\n');
   const listaCategorias = Object.entries(CATEGORIAS_RESPOSTA_PRONTA).map(([cat, desc]) => `${cat} = ${desc}`).join('\n');
-  const prompt = [
+  return [
     'Você classifica mensagens de entregadores em UM destes 5 tipos:',
     '',
     '1) TROCA/ALOCAÇÃO DE PRAÇA (eh_pedido_troca: true) -- mudar ou definir a região/área onde vai',
@@ -520,20 +562,50 @@ async function classificarPedidoCompleto(mensagens: string[]): Promise<{ eh_pedi
     '',
     'Praças válidas (só usadas se eh_pedido_troca for true):',
     listaPracas,
+  ].join('\n');
+}
+
+// classificarPedidosEmLote: classifica N conversas numa chamada só à
+// Claude (N pode ser 1). Cada conversa recebe um índice (0..N-1) no
+// prompt, e a resposta é um array reordenado por esse mesmo índice --
+// assim, mesmo que a Claude devolva os itens fora de ordem, o resultado
+// [i] sempre corresponde a contextos[i].
+async function classificarPedidosEmLote(contextos: string[][]): Promise<(Classificacao | null)[]> {
+  const conversasTexto = contextos
+    .map((ctx, i) => `Conversa ${i}:\n${ctx.join('\n')}`)
+    .join('\n\n');
+
+  const prompt = [
+    promptClassificacaoBase(),
     '',
-    'Você recebe as últimas mensagens da conversa (mais recente por último, rotuladas "entregador"',
-    'ou "atendente"). Responda APENAS um JSON válido, sem markdown, no formato:',
-    '{"eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null, "eh_pedido_deslogar": true|false, "novato_etapa": "sem_duvida"|"duvida_generica"|"duvida_mapa"|"duvida_horario"|"duvida_agendamento" ou null}',
+    contextos.length > 1
+      ? `Você recebe ${contextos.length} conversas numeradas abaixo (cada uma rotulada "Conversa N:",`
+      : 'Você recebe uma conversa (rotulada "Conversa 0:",',
+    'mensagens mais recente por último, rotuladas "entregador" ou "atendente"). Classifique CADA',
+    'conversa independentemente, aplicando as regras acima. Responda APENAS um JSON válido (um',
+    'array), sem markdown, no formato:',
+    '[{"id": 0, "eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null, "eh_pedido_deslogar": true|false, "novato_etapa": "sem_duvida"|"duvida_generica"|"duvida_mapa"|"duvida_horario"|"duvida_agendamento" ou null}, ...]',
+    `Devolva exatamente ${contextos.length} objeto(s), um pra cada conversa numerada de 0 a ${contextos.length - 1},`,
+    'com o campo "id" batendo com o número da conversa (a ordem dos objetos no array não importa,',
+    'o "id" que importa).',
     '',
     'praca_codigo só deve vir preenchido se uma praça específica da lista foi mencionada com clareza.',
     'No máximo UM entre eh_pedido_troca, categoria, eh_pedido_deslogar e novato_etapa deve indicar',
-    'positivo por vez -- se tiver qualquer dúvida sobre qual, prefira deixar tudo negativo/null.',
+    'positivo por vez pra cada conversa -- se tiver qualquer dúvida sobre qual, prefira deixar tudo',
+    'negativo/null pra aquela conversa.',
     '',
-    'Conversa:',
-    mensagens.join('\n'),
+    conversasTexto,
   ].join('\n');
 
-  return await chamarClaude(prompt);
+  // ~80 tokens de folga por item de resposta + margem fixa pro resto do JSON.
+  const maxTokens = Math.min(4096, 80 * contextos.length + 150);
+  const resultado = await chamarClaude(prompt, maxTokens);
+
+  if (!Array.isArray(resultado)) {
+    throw new Error(`Classificação em lote não veio como array: ${JSON.stringify(resultado)}`);
+  }
+  const porId = new Map(resultado.map((r: any) => [r?.id, r]));
+  return contextos.map((_, i) => (porId.get(i) as Classificacao) ?? null);
 }
 
 // classificarPraca: já sabemos que é pedido de troca (estado aguardando_praca)
@@ -554,7 +626,7 @@ async function classificarPraca(mensagem: string): Promise<{ praca_codigo: strin
   return await chamarClaude(prompt);
 }
 
-async function chamarClaude(prompt: string): Promise<any> {
+async function chamarClaude(prompt: string, maxTokens = 150): Promise<any> {
   const apiKey = Deno.env.get('CLAUDE_API_KEY');
   if (!apiKey) throw new Error('CLAUDE_API_KEY não configurada.');
 
@@ -567,7 +639,7 @@ async function chamarClaude(prompt: string): Promise<any> {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 150,
+      max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
