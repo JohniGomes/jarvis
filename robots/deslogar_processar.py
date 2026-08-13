@@ -252,14 +252,23 @@ def _processar_um_com_retry(p, cpf, nome):
     return None, ultimo_erro
 
 
+# Pedido do usuário 13/08/2026: 06:00-15:30 -> 06:00-01:00 (madrugada
+# seguinte), full time por pelo menos uma semana -- avisa quando quiser
+# voltar ao horário normal. Janela cruza a meia-noite, então FIM (01:00 =
+# 60min) é numericamente menor que INICIO (06:00 = 360min) -- ver
+# dentro_do_horario_de_operacao().
 HORARIO_INICIO_MIN = 6 * 60  # 06:00
-HORARIO_FIM_MIN = 15 * 60 + 30  # 15:30
+HORARIO_FIM_MIN = 1 * 60  # 01:00 (do dia seguinte)
 
 
 def dentro_do_horario_de_operacao():
     agora = agora_brasilia()
     minutos = agora.hour * 60 + agora.minute
-    return HORARIO_INICIO_MIN <= minutos < HORARIO_FIM_MIN
+    if HORARIO_FIM_MIN > HORARIO_INICIO_MIN:
+        return HORARIO_INICIO_MIN <= minutos < HORARIO_FIM_MIN
+    # Janela cruza a meia-noite (ex.: 06:00-01:00) -- está dentro se for
+    # depois do início OU antes do fim, não as duas coisas ao mesmo tempo.
+    return minutos >= HORARIO_INICIO_MIN or minutos < HORARIO_FIM_MIN
 
 
 def main():

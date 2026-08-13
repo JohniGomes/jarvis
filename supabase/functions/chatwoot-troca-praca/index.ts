@@ -110,8 +110,15 @@ const CATEGORIAS_RESPOSTA_PRONTA: Record<string, string> = {};
 
 // Só fica ativo no horário do operador atual -- depois desse horário outra
 // pessoa assume o atendimento manualmente. Ajuste aqui se o horário mudar.
+//
+// Pedido do usuário 13/08/2026: 06:00-15:30 -> 06:00-01:00 (madrugada
+// seguinte), full time por pelo menos uma semana -- avisa quando quiser
+// voltar ao horário normal. Janela cruza a meia-noite, então HORARIO_FIM
+// (01:00 = 60min) é NUMERICAMENTE MENOR que HORARIO_INICIO (06:00 =
+// 360min) -- a comparação abaixo já trata esse caso (vira "ou" em vez de
+// "e" quando FIM < INICIO).
 const HORARIO_INICIO = 6 * 60; // 06:00 em minutos desde meia-noite
-const HORARIO_FIM = 15 * 60 + 30; // 15:30
+const HORARIO_FIM = 1 * 60; // 01:00 (do dia seguinte)
 
 function dentroDoHorarioDeOperacao(): boolean {
   const agora = new Date().toLocaleString('en-US', {
@@ -122,7 +129,12 @@ function dentroDoHorarioDeOperacao(): boolean {
   });
   const [h, m] = agora.split(':').map(Number);
   const minutosDoDia = h * 60 + m;
-  return minutosDoDia >= HORARIO_INICIO && minutosDoDia < HORARIO_FIM;
+  if (HORARIO_FIM > HORARIO_INICIO) {
+    return minutosDoDia >= HORARIO_INICIO && minutosDoDia < HORARIO_FIM;
+  }
+  // Janela cruza a meia-noite (ex.: 06:00-01:00) -- está dentro se for
+  // depois do início OU antes do fim, não as duas coisas ao mesmo tempo.
+  return minutosDoDia >= HORARIO_INICIO || minutosDoDia < HORARIO_FIM;
 }
 
 // Meia-noite de hoje em horário de Brasília, convertida pra ISO (UTC) --
