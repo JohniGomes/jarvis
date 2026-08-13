@@ -1207,9 +1207,29 @@
 
   var ESCALAS_VAGAS_POLL_MAX_MS = 150000; // folga em cima do ~1-2min que o robô costuma levar
   var ESCALAS_VAGAS_POLL_INTERVAL_MS = 8000;
-  var ESCALAS_VAGAS_SELECT = 'turno,area_origem,regular_preenchido,regular_total,sincronizado_em';
+  var ESCALAS_VAGAS_SELECT = 'id,turno,area_origem,modal,regular_preenchido,regular_total,sincronizado_em';
 
   var escalasVagasAllRows = [];
+
+  // O Gestor de Escalas lista o mesmo modal duas vezes pro mesmo
+  // turno+região (viu-se em teste real 13/08/2026 -- ex.: "MOTORCYCLE"
+  // aparecendo duas vezes pra "Sao Paulo" no mesmo turno, às vezes até com
+  // preenchido diferente entre as duas) -- somar sem isso dobra a
+  // capacidade real. Mantém só a PRIMEIRA linha de cada combinação
+  // turno+área+modal, descarta qualquer repetição do mesmo modal depois
+  // dessa. Modais diferentes (ex.: MOTORCYCLE e "4 selecionados") não são
+  // duplicata entre si -- continuam sendo somados normalmente.
+  function dedupeEscalasVagasRows(rows) {
+    var vistos = {};
+    var out = [];
+    rows.forEach(function (r) {
+      var chave = r.turno + '||' + r.area_origem + '||' + r.modal;
+      if (vistos[chave]) return;
+      vistos[chave] = true;
+      out.push(r);
+    });
+    return out;
+  }
 
   function populateEscalasVagasFilters(rows) {
     var turnoSelect = document.getElementById('escalasVagasTurnoFilter');
@@ -1243,7 +1263,7 @@
   }
 
   function renderEscalasVagasChart(areaFiltro) {
-    var rows = escalasVagasAllRows.filter(function (r) { return !areaFiltro || r.area_origem === areaFiltro; });
+    var rows = dedupeEscalasVagasRows(escalasVagasAllRows.filter(function (r) { return !areaFiltro || r.area_origem === areaFiltro; }));
     var porTurno = {};
     rows.forEach(function (r) {
       if (!porTurno[r.turno]) porTurno[r.turno] = { preenchido: 0, total: 0 };
@@ -1277,9 +1297,9 @@
     var turnoFiltro = document.getElementById('escalasVagasTurnoFilter').value;
     var areaFiltro = document.getElementById('escalasVagasAreaFilter').value;
 
-    var rows = escalasVagasAllRows.filter(function (r) {
+    var rows = dedupeEscalasVagasRows(escalasVagasAllRows.filter(function (r) {
       return (!turnoFiltro || r.turno === turnoFiltro) && (!areaFiltro || r.area_origem === areaFiltro);
-    });
+    }));
 
     geralEl.textContent = rows.length ? (escalasVagasPct(rows) + '% geral') : '–';
     renderEscalasVagasChart(areaFiltro);
@@ -1326,7 +1346,13 @@
   }
 
   function fetchEscalasVagas() {
-    return fetch(SUPABASE_URL + '/rest/v1/escalas_vagas?select=' + ESCALAS_VAGAS_SELECT + '&order=turno.asc,area_origem.asc', {
+    // "id.asc" como desempate final -- sem isso a ordem entre linhas com o
+    // mesmo turno+área (ex.: duas do mesmo modal) não é garantida pelo
+    // Postgres, e o dedupe (mantém só a primeira ocorrência de cada
+    // turno+área+modal) ficava inconsistente entre uma chamada e outra.
+    // "id" é sequencial na ordem em que o robô gravou (mesma ordem que leu
+    // da tela), então isso reflete a leitura real.
+    return fetch(SUPABASE_URL + '/rest/v1/escalas_vagas?select=' + ESCALAS_VAGAS_SELECT + '&order=turno.asc,area_origem.asc,id.asc', {
       headers: {
         apikey: SUPABASE_ANON_KEY,
         Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
