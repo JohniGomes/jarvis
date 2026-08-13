@@ -1205,30 +1205,41 @@
     };
   }
 
-  var ESCALAS_VAGAS_POLL_MAX_MS = 150000; // folga em cima do ~1-2min que o robô costuma levar
+  // O robô tem 6 tentativas com timeout de 60s+15s de espera cada -- em dia
+  // de proxy ruim isso passa fácil dos 2,5min que tínhamos antes (bug real
+  // visto em produção 13/08/2026: usuário clicou Atualizar e o polling
+  // desistiu antes do robô terminar, mesmo a atualização saindo certa
+  // logo em seguida). 5min dá folga pro pior caso sem deixar o botão
+  // travado pra sempre se der erro de verdade.
+  var ESCALAS_VAGAS_POLL_MAX_MS = 300000;
   var ESCALAS_VAGAS_POLL_INTERVAL_MS = 8000;
   var ESCALAS_VAGAS_SELECT = 'id,turno,area_origem,modal,regular_preenchido,regular_total,sincronizado_em';
 
   var escalasVagasAllRows = [];
 
-  // O Gestor de Escalas lista o mesmo modal duas vezes pro mesmo
-  // turno+região (viu-se em teste real 13/08/2026 -- ex.: "MOTORCYCLE"
-  // aparecendo duas vezes pra "Sao Paulo" no mesmo turno, às vezes até com
-  // preenchido diferente entre as duas) -- somar sem isso dobra a
-  // capacidade real. Mantém só a PRIMEIRA linha de cada combinação
-  // turno+área+modal, descarta qualquer repetição do mesmo modal depois
-  // dessa. Modais diferentes (ex.: MOTORCYCLE e "4 selecionados") não são
-  // duplicata entre si -- continuam sendo somados normalmente.
-  function dedupeEscalasVagasRows(rows) {
-    var vistos = {};
-    var out = [];
+  // O Gestor de Escalas mostra a MESMA vaga sob modais diferentes (ex.:
+  // "MOTORCYCLE 30/30" e "4 selecionados 6/30" pro mesmo turno+região) --
+  // não são vagas adicionais, é a mesma pool de 30 vistas por um filtro de
+  // veículo diferente. Somar os totais entre modais (30+30=60) dobra a
+  // capacidade real. Ajuste do usuário 13/08/2026: assume só 1 pool por
+  // turno+área -- usa o maior total visto (deveria ser sempre igual entre
+  // modais; o máximo protege contra alguma linha capturada incompleta) e o
+  // maior preenchido visto (o modal mais amplo mostra a contagem mais
+  // completa de quem já está de fato alocado nessa vaga).
+  function collapseEscalasVagasPorRegiao(rows) {
+    var grupos = {};
+    var ordem = [];
     rows.forEach(function (r) {
-      var chave = r.turno + '||' + r.area_origem + '||' + r.modal;
-      if (vistos[chave]) return;
-      vistos[chave] = true;
-      out.push(r);
+      var chave = r.turno + '||' + r.area_origem;
+      if (!grupos[chave]) {
+        grupos[chave] = { turno: r.turno, area_origem: r.area_origem, regular_preenchido: 0, regular_total: 0 };
+        ordem.push(chave);
+      }
+      var g = grupos[chave];
+      g.regular_preenchido = Math.max(g.regular_preenchido, r.regular_preenchido);
+      g.regular_total = Math.max(g.regular_total, r.regular_total);
     });
-    return out;
+    return ordem.map(function (chave) { return grupos[chave]; });
   }
 
   function populateEscalasVagasFilters(rows) {
@@ -1263,7 +1274,7 @@
   }
 
   function renderEscalasVagasChart(areaFiltro) {
-    var rows = dedupeEscalasVagasRows(escalasVagasAllRows.filter(function (r) { return !areaFiltro || r.area_origem === areaFiltro; }));
+    var rows = collapseEscalasVagasPorRegiao(escalasVagasAllRows.filter(function (r) { return !areaFiltro || r.area_origem === areaFiltro; }));
     var porTurno = {};
     rows.forEach(function (r) {
       if (!porTurno[r.turno]) porTurno[r.turno] = { preenchido: 0, total: 0 };
@@ -1297,7 +1308,7 @@
     var turnoFiltro = document.getElementById('escalasVagasTurnoFilter').value;
     var areaFiltro = document.getElementById('escalasVagasAreaFilter').value;
 
-    var rows = dedupeEscalasVagasRows(escalasVagasAllRows.filter(function (r) {
+    var rows = collapseEscalasVagasPorRegiao(escalasVagasAllRows.filter(function (r) {
       return (!turnoFiltro || r.turno === turnoFiltro) && (!areaFiltro || r.area_origem === areaFiltro);
     }));
 
@@ -1308,27 +1319,15 @@
       body.innerHTML = '<tr><td colspan="4">' + (escalasVagasAllRows.length ? 'Nenhum resultado pra esse filtro.' : 'Nenhum dado ainda — clique em Atualizar.') + '</td></tr>';
       return;
     }
-    // Várias linhas de modal podem existir pra mesma região+turno (ex.:
-    // MOTORCYCLE e "4 selecionados" separados) -- soma antes de exibir.
-    var grupos = {};
-    var ordem = [];
-    rows.forEach(function (r) {
-      var chave = r.turno + '||' + r.area_origem;
-      if (!grupos[chave]) {
-        grupos[chave] = { turno: r.turno, area: r.area_origem, preenchido: 0, total: 0 };
-        ordem.push(chave);
-      }
-      grupos[chave].preenchido += r.regular_preenchido;
-      grupos[chave].total += r.regular_total;
-    });
-    body.innerHTML = ordem.map(function (chave) {
-      var g = grupos[chave];
-      var pct = g.total ? Math.round(1000 * g.preenchido / g.total) / 10 : 0;
+    // collapseEscalasVagasPorRegiao já devolve 1 linha por turno+área --
+    // não precisa agrupar de novo aqui.
+    body.innerHTML = rows.map(function (g) {
+      var pct = g.regular_total ? Math.round(1000 * g.regular_preenchido / g.regular_total) / 10 : 0;
       var cor = pct >= 80 ? '#1a9e4a' : (pct >= 40 ? '#b8860b' : '#c0392b');
       return '<tr>' +
         '<td>' + g.turno + '</td>' +
-        '<td>' + g.area + '</td>' +
-        '<td>' + g.preenchido + '/' + g.total + '</td>' +
+        '<td>' + g.area_origem + '</td>' +
+        '<td>' + g.regular_preenchido + '/' + g.regular_total + '</td>' +
         '<td style="color:' + cor + ';font-weight:600;">' + pct + '%</td>' +
         '</tr>';
     }).join('');
