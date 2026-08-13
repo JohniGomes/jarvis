@@ -78,27 +78,84 @@ def _wait_networkidle_soft(page):
         pass
 
 
+_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+MAX_RODADAS_FILTRO_ERRO = 3
+
+
+def _driver_ids_rejeitados(page):
+    """Depois de clicar Enviar, o franqueado às vezes recusa a planilha
+    inteira porque ela cita DRIVER_ID de gente com cadastro excluído
+    ("OL não pode alterar drivers não-OL") -- mostra um card vermelho
+    "Operação não permitida" com a lista de IDs problemáticos. Sem
+    verificar isso, o robô achava que tinha dado certo (só olhava se o
+    clique funcionou, nunca o resultado) e a elegibilidade inteira ficava
+    sem atualizar silenciosamente. Detecta pelo texto (não depende do
+    motivo exato, só do padrão "não permitida" + lista de UUIDs, pra ser
+    resiliente a variações na mensagem) e devolve os IDs pra remover da
+    planilha antes de tentar de novo."""
+    try:
+        erro = page.get_by_text(re.compile("não permitida", re.IGNORECASE))
+        if erro.count() == 0:
+            return []
+    except Exception:
+        return []
+
+    texto = page.locator("body").inner_text()
+    pos = texto.lower().find("não permitida")
+    if pos == -1:
+        return []
+    # Só considera UUIDs DEPOIS da mensagem de erro (evita pegar algo
+    # solto de outra parte da tela por engano).
+    return list(dict.fromkeys(_UUID_RE.findall(texto[pos:])))
+
+
+def _remover_drivers_do_csv(csv_texto, driver_ids):
+    ids_lower = {d.lower() for d in driver_ids}
+    linhas = csv_texto.splitlines()
+    if not linhas:
+        return csv_texto, 0
+    cabecalho, resto = linhas[0], linhas[1:]
+    mantidas = [l for l in resto if l.split(",", 1)[0].strip().lower() not in ids_lower]
+    removidas = len(resto) - len(mantidas)
+    return "\n".join([cabecalho] + mantidas) + "\n", removidas
+
+
 def enviar_csv_elegibilidade(page, csv_texto):
-    with open(UPLOAD_TMP_PATH, "w", encoding="utf-8", newline="") as f:
-        f.write(csv_texto)
+    for rodada in range(1, MAX_RODADAS_FILTRO_ERRO + 1):
+        with open(UPLOAD_TMP_PATH, "w", encoding="utf-8", newline="") as f:
+            f.write(csv_texto)
 
-    page.goto("https://franqueado.entregolog.com/supply/driver-booking-import")
-    _wait_networkidle_soft(page)
-    page.wait_for_timeout(800)
-    page.get_by_role("radiogroup").get_by_text("Elegibilidade", exact=True).click()
-    page.wait_for_timeout(800)
+        page.goto("https://franqueado.entregolog.com/supply/driver-booking-import")
+        _wait_networkidle_soft(page)
+        page.wait_for_timeout(800)
+        page.get_by_role("radiogroup").get_by_text("Elegibilidade", exact=True).click()
+        page.wait_for_timeout(800)
 
-    file_input = page.locator("input[type=file]")
-    file_input.set_input_files(UPLOAD_TMP_PATH)
-    page.wait_for_timeout(800)
+        file_input = page.locator("input[type=file]")
+        file_input.set_input_files(UPLOAD_TMP_PATH)
+        page.wait_for_timeout(800)
 
-    botao_enviar = page.get_by_role("button", name=re.compile("^Enviar$", re.I))
-    botao_enviar.wait_for(timeout=10000)
-    botao_enviar.click()
-    page.wait_for_timeout(3000)
-    _wait_networkidle_soft(page)
+        botao_enviar = page.get_by_role("button", name=re.compile("^Enviar$", re.I))
+        botao_enviar.wait_for(timeout=10000)
+        botao_enviar.click()
+        page.wait_for_timeout(3000)
+        _wait_networkidle_soft(page)
 
-    os.remove(UPLOAD_TMP_PATH)
+        os.remove(UPLOAD_TMP_PATH)
+
+        driver_ids_rejeitados = _driver_ids_rejeitados(page)
+        if not driver_ids_rejeitados:
+            return  # sucesso
+
+        log(f"Franqueado recusou {len(driver_ids_rejeitados)} DRIVER_ID (provavelmente cadastro excluído / não-OL): {driver_ids_rejeitados}")
+        csv_texto, removidas = _remover_drivers_do_csv(csv_texto, driver_ids_rejeitados)
+        if removidas == 0:
+            # Achou o erro mas não conseguiu casar nenhum ID pra remover
+            # (mudança no formato da mensagem?) -- não insiste às cegas.
+            raise RuntimeError(f"Franqueado recusou o upload (\"não permitida\") mas não foi possível identificar quais linhas remover: {driver_ids_rejeitados}")
+        log(f"Removidas {removidas} linha(s) da planilha ({', '.join(driver_ids_rejeitados)}) -- tentando reenviar (rodada {rodada + 1}/{MAX_RODADAS_FILTRO_ERRO}).")
+
+    raise RuntimeError(f"Franqueado continuou recusando o upload depois de {MAX_RODADAS_FILTRO_ERRO} rodadas de filtro de DRIVER_ID inválido.")
 
 
 def _enviar_com_retry(p, csv_texto):
