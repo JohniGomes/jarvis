@@ -1217,27 +1217,43 @@
 
   var escalasVagasAllRows = [];
 
-  // O Gestor de Escalas mostra a MESMA vaga sob modais diferentes (ex.:
-  // "MOTORCYCLE 30/30" e "4 selecionados 6/30" pro mesmo turno+região) --
-  // não são vagas adicionais, é a mesma pool de 30 vistas por um filtro de
-  // veículo diferente. Somar os totais entre modais (30+30=60) dobra a
-  // capacidade real. Ajuste do usuário 13/08/2026: assume só 1 pool por
-  // turno+área -- usa o maior total visto (deveria ser sempre igual entre
-  // modais; o máximo protege contra alguma linha capturada incompleta) e o
-  // maior preenchido visto (o modal mais amplo mostra a contagem mais
-  // completa de quem já está de fato alocado nessa vaga).
+  // Regra explicada pelo usuário 13/08/2026: o modal "N selecionados" (ex.
+  // "4 selecionados") não abre vaga nova -- é gente que pegou ALÉM da vaga
+  // normal do modal de veículo (ex. MOTORCYCLE), contando como excesso.
+  // Exemplo: MOTORCYCLE 30/30 + "4 selecionados" 6/30 -> 36 preenchidos de
+  // 30 vagas reais (6 de excesso), não 36/60. Então:
+  //   - total (vagas reais) soma só os modais de veículo (não-"selecionados")
+  //   - preenchido soma TODOS os modais, veículo + selecionados
+  // Dentro de cada modal individual, o Gestor de Escalas ainda lista a
+  // mesma linha 2x (bug/duplicata visto em teste real 13/08/2026) -- usa o
+  // maior preenchido/total vistos por modal antes de somar entre modais,
+  // pra não contar a mesma pessoa duas vezes.
+  var MODAL_SELECIONADOS_RE = /selecionados/i;
+
   function collapseEscalasVagasPorRegiao(rows) {
+    var porModal = {};
+    rows.forEach(function (r) {
+      var chaveModal = r.turno + '||' + r.area_origem + '||' + r.modal;
+      if (!porModal[chaveModal]) {
+        porModal[chaveModal] = { turno: r.turno, area_origem: r.area_origem, modal: r.modal, preenchido: 0, total: 0 };
+      }
+      var m = porModal[chaveModal];
+      m.preenchido = Math.max(m.preenchido, r.regular_preenchido);
+      m.total = Math.max(m.total, r.regular_total);
+    });
+
     var grupos = {};
     var ordem = [];
-    rows.forEach(function (r) {
-      var chave = r.turno + '||' + r.area_origem;
+    Object.keys(porModal).forEach(function (chaveModal) {
+      var m = porModal[chaveModal];
+      var chave = m.turno + '||' + m.area_origem;
       if (!grupos[chave]) {
-        grupos[chave] = { turno: r.turno, area_origem: r.area_origem, regular_preenchido: 0, regular_total: 0 };
+        grupos[chave] = { turno: m.turno, area_origem: m.area_origem, regular_preenchido: 0, regular_total: 0 };
         ordem.push(chave);
       }
       var g = grupos[chave];
-      g.regular_preenchido = Math.max(g.regular_preenchido, r.regular_preenchido);
-      g.regular_total = Math.max(g.regular_total, r.regular_total);
+      g.regular_preenchido += m.preenchido;
+      if (!MODAL_SELECIONADOS_RE.test(m.modal)) g.regular_total += m.total;
     });
     return ordem.map(function (chave) { return grupos[chave]; });
   }
