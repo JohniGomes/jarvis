@@ -233,7 +233,19 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        const contexto = paraContexto(mensagensCru, MENSAGENS_DE_CONTEXTO);
+        // Bug real reportado pelo usuário 14/08/2026 (print de conversa
+        // real): conversa parada tinha um pedido de praça de dias atrás
+        // ("Livre por favor" em 09/08); quando a pessoa voltou a mandar
+        // mensagem solta em 14/08 ("rafael", sem pedir nada), o contexto
+        // (últimas 12 mensagens, sem filtro de data) ainda incluía aquele
+        // pedido antigo, e a regra de "cutucão" (mensagem vaga depois de
+        // uma praça já mencionada) fez a Claude tratar como se fosse
+        // pedido de hoje -- executou a troca por engano. Só manda pro
+        // contexto as mensagens do MESMO DIA (fuso Brasília) da última
+        // mensagem do entregador -- pedidos de dias anteriores não value
+        // mais como "cutucão" de hoje.
+        const mensagensDeHoje = mensagensCru.filter((m: any) => mesmoDiaBrasilia(m.created_at, ultimaDoContato.created_at));
+        const contexto = paraContexto(mensagensDeHoje, MENSAGENS_DE_CONTEXTO);
         pendentes.push({ conv, msg: ultimaDoContato, contexto });
       } catch (err) {
         console.error(`Falha buscando mensagens da conversa ${conv.id}:`, err);
@@ -353,6 +365,15 @@ async function transcreverAudio(dataUrl: string): Promise<string> {
   const json = await resp.json();
   if (!resp.ok) throw new Error(`Whisper API (${resp.status}): ${json.error?.message || JSON.stringify(json)}`);
   return json.text || '';
+}
+
+// Compara a data (fuso Brasília) de dois timestamps Unix (segundos) --
+// usado pra não deixar mensagens de dias anteriores contaminarem o
+// contexto de classificação do dia atual. Ver comentário no loop
+// principal (bug real 14/08/2026).
+function mesmoDiaBrasilia(unixSegundosA: number, unixSegundosB: number): boolean {
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' });
+  return fmt.format(new Date(unixSegundosA * 1000)) === fmt.format(new Date(unixSegundosB * 1000));
 }
 
 function paraContexto(mensagens: any[], limite: number): string[] {
