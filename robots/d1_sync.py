@@ -220,6 +220,16 @@ def main():
         for tentativa in range(1, MAX_TENTATIVAS + 1):
             browser = launch_browser(p.chromium)
             page = browser.new_page(accept_downloads=True)
+            # Padrão do Playwright pra navegação (30s) fica bem em cima do
+            # tempo real de carregamento da página via proxy residencial --
+            # medido localmente em 22-24,5s (mesmo IP/proxy que o GitHub
+            # Actions usa). Bug real visto em produção 18/08/2026: 6
+            # tentativas seguidas falharam com "Page.goto: Timeout 30000ms
+            # exceeded" -- não era instabilidade de verdade, era o timeout
+            # curto demais pra margem real. Outros robôs (elegibilidade,
+            # escalas) já tinham recebido esse mesmo aumento antes.
+            page.set_default_navigation_timeout(60000)
+            page.set_default_timeout(45000)
             try:
                 log("Login em franqueado.entregolog.com...")
                 login(page)
