@@ -285,6 +285,28 @@
       </div>
 
       <div class="sim-card">
+        <div class="sim-card__title">Comparativo por regi&atilde;o</div>
+        <div class="sim-card__hint" id="regiaoCompHint">Pedidos, entregadores e efici&ecirc;ncia por regi&atilde;o no per&iacute;odo selecionado, comparado ao per&iacute;odo anterior.</div>
+        <div class="table-scroll" style="margin-top: 10px;">
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th>Regi&atilde;o</th>
+                <th>Pedidos</th>
+                <th>Entregadores</th>
+                <th>Share</th>
+                <th>Horas Online</th>
+                <th>Efici&ecirc;ncia<span title="Pedidos por hora online" style="cursor:help;">&nbsp;ⓘ</span></th>
+                <th id="regiaoCompVarHeader">Varia&ccedil;&atilde;o</th>
+              </tr>
+            </thead>
+            <tbody id="regiaoCompBody"></tbody>
+            <tfoot id="regiaoCompFoot"></tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div class="sim-card">
         <div class="sim-card__row">
           <div>
             <div class="sim-card__title">Preenchimento de vagas por regi&atilde;o e turno</div>
@@ -1114,10 +1136,115 @@
       '<br><span class="empty-hint">M&aacute;ximo poss&iacute;vel com a escala atual (100% do tempo j&aacute; escalado): ' + fmtHoras(maxPossivelHoras * 3600) + '.</span>';
   }
 
-  function renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail, d1Rows) {
+  // Pedido do usuário 18/08/2026 (print de análise do financeiro): tabela
+  // por região com pedidos, entregadores, share do total, horas online e
+  // variação vs o período anterior (mesma janela de comparação já usada no
+  // resto do painel -- semana ou mês anterior, conforme compareModeSelect).
+  function computeRegiaoBreakdown(rows, rowsPrev) {
+    function agrupar(rs) {
+      var por = {};
+      rs.forEach(function (r) {
+        var praca = subpracaKey(r);
+        if (!por[praca]) por[praca] = { pedidos: 0, tempoOnlineSec: 0, entregadores: {} };
+        por[praca].pedidos += Number(r.numero_de_pedidos_aceitos_e_concluidos) || 0;
+        por[praca].tempoOnlineSec += toSeconds(r.tempo_disponivel_absoluto);
+        var idKey = r.id_da_pessoa_entregadora || normName(r.pessoa_entregadora);
+        por[praca].entregadores[idKey] = true;
+      });
+      return por;
+    }
+    var atual = agrupar(rows);
+    var anterior = agrupar(rowsPrev || []);
+
+    var totalPedidos = 0;
+    Object.keys(atual).forEach(function (p) { totalPedidos += atual[p].pedidos; });
+
+    var pracas = Object.keys(atual);
+    Object.keys(anterior).forEach(function (p) { if (pracas.indexOf(p) === -1) pracas.push(p); });
+
+    var linhas = pracas.map(function (praca) {
+      var a = atual[praca] || { pedidos: 0, tempoOnlineSec: 0, entregadores: {} };
+      var b = anterior[praca] || { pedidos: 0, tempoOnlineSec: 0, entregadores: {} };
+      var horasOnline = a.tempoOnlineSec / 3600;
+      // null = sem base de comparação (região nova, sem pedidos no período anterior).
+      var variacaoPct = b.pedidos ? Math.round(1000 * (a.pedidos - b.pedidos) / b.pedidos) / 10 : null;
+      return {
+        praca: praca,
+        pedidos: a.pedidos,
+        entregadores: Object.keys(a.entregadores).length,
+        sharePct: totalPedidos ? Math.round(1000 * a.pedidos / totalPedidos) / 10 : 0,
+        horasOnline: horasOnline,
+        eficiencia: horasOnline ? Math.round(10 * a.pedidos / horasOnline) / 10 : 0,
+        variacaoPct: variacaoPct,
+      };
+    }).sort(function (x, y) { return y.pedidos - x.pedidos; });
+
+    var totalEntregadores = {};
+    rows.forEach(function (r) { totalEntregadores[r.id_da_pessoa_entregadora || normName(r.pessoa_entregadora)] = true; });
+    var totalHoras = linhas.reduce(function (s, l) { return s + l.horasOnline; }, 0);
+    var totalPedidosPrev = Object.keys(anterior).reduce(function (s, p) { return s + anterior[p].pedidos; }, 0);
+    var totalVariacaoPct = totalPedidosPrev ? Math.round(1000 * (totalPedidos - totalPedidosPrev) / totalPedidosPrev) / 10 : null;
+
+    return {
+      linhas: linhas,
+      total: {
+        pedidos: totalPedidos,
+        entregadores: Object.keys(totalEntregadores).length,
+        horasOnline: totalHoras,
+        eficiencia: totalHoras ? Math.round(10 * totalPedidos / totalHoras) / 10 : 0,
+        variacaoPct: totalVariacaoPct,
+      },
+    };
+  }
+
+  function variacaoHtml(pct) {
+    if (pct === null) return '<span class="empty-hint">novo</span>';
+    var cor = pct > 0 ? '#1a9e4a' : (pct < 0 ? '#c0392b' : 'var(--text-muted)');
+    var seta = pct > 0 ? '▲' : (pct < 0 ? '▼' : '');
+    return '<span style="color:' + cor + ';font-weight:600;">' + seta + ' ' + Math.abs(pct).toFixed(1).replace('.', ',') + '%</span>';
+  }
+
+  function renderRegiaoBreakdown(d1Rows, d1RowsPrev) {
+    document.getElementById('regiaoCompVarHeader').textContent = 'Variação (vs ' + (currentCompareLabel || 'período ant.') + ')';
+    var body = document.getElementById('regiaoCompBody');
+    var foot = document.getElementById('regiaoCompFoot');
+    var dados = computeRegiaoBreakdown(d1Rows, d1RowsPrev);
+
+    if (!dados.linhas.length) {
+      body.innerHTML = '<tr><td colspan="7" class="empty-hint">Sem dados no período selecionado.</td></tr>';
+      foot.innerHTML = '';
+      return;
+    }
+
+    body.innerHTML = dados.linhas.map(function (l) {
+      return '<tr>' +
+        '<td>' + l.praca + '</td>' +
+        '<td>' + l.pedidos.toLocaleString('pt-BR') + '</td>' +
+        '<td>' + l.entregadores.toLocaleString('pt-BR') + '</td>' +
+        '<td>' + l.sharePct.toFixed(1).replace('.', ',') + '%</td>' +
+        '<td>' + fmtHoras(l.horasOnline * 3600) + '</td>' +
+        '<td>' + l.eficiencia.toFixed(1).replace('.', ',') + '</td>' +
+        '<td>' + variacaoHtml(l.variacaoPct) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    var t = dados.total;
+    foot.innerHTML = '<tr style="font-weight:600;">' +
+      '<td>Total</td>' +
+      '<td>' + t.pedidos.toLocaleString('pt-BR') + '</td>' +
+      '<td>' + t.entregadores.toLocaleString('pt-BR') + '</td>' +
+      '<td>100%</td>' +
+      '<td>' + fmtHoras(t.horasOnline * 3600) + '</td>' +
+      '<td>' + t.eficiencia.toFixed(1).replace('.', ',') + '</td>' +
+      '<td>' + variacaoHtml(t.variacaoPct) + '</td>' +
+      '</tr>';
+  }
+
+  function renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail, d1Rows, d1RowsPrev) {
     currentAderenciaDetail = aderenciaDetail;
     currentTempoOnlineDetail = tempoOnlineDetail;
     currentAnalysis = analysis;
+    renderRegiaoBreakdown(d1Rows, d1RowsPrev);
     document.getElementById('aiSummaryResult').innerHTML = '';
     document.getElementById('aiSummaryBtn').disabled = false;
 
@@ -2022,7 +2149,7 @@
       kpisPrev.tempo_online_pct = computeTempoOnlineTotal(d1RowsPrev);
     }
     var analysis = computeAnalysis(d1ById);
-    renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail, d1Rows);
+    renderAnalise(analysis, aderenciaDetail, tempoOnlineDetail, d1Rows, d1RowsPrev);
     renderKpis(kpisPrev);
     renderTable();
 
