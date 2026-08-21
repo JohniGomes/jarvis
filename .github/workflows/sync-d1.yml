@@ -50,9 +50,11 @@ jobs:
           EMAIL_IMAP_PASSWORD: ${{ secrets.EMAIL_IMAP_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # Proxy residencial (DataImpulse) -- franqueado.entregolog.com
-          # bloqueia IP de datacenter (Akamai + PerimeterX), precisa sair
-          # por IP residencial fixo (sticky) e geo Brasil. Ver robots/browser_launch.py
+          # Proxy -- franqueado.entregolog.com bloqueia IP de datacenter
+          # (Akamai + PerimeterX), precisa sair por outro caminho. Ver
+          # robots/browser_launch.py e o comentário sobre o proxy atual no
+          # .env (stopgap gratuito do Webshare desde 21/08/2026, DataImpulse
+          # ficou sem crédito).
           # e robots/franqueado_login.py.
           PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
           PROXY_USERNAME: ${{ secrets.PROXY_USERNAME }}
