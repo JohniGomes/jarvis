@@ -657,12 +657,22 @@ async function classificarPraca(mensagem: string): Promise<{ praca_codigo: strin
 // Gemini tem tier gratuito (sem cartão) suficiente pro nosso volume, já
 // que o processamento em lote (ver classificarPedidosEmLote) já reduz
 // bastante o número de chamadas por ciclo.
+//
+// Modelo: gemini-3.5-flash-lite (trocado de gemini-2.5-flash em
+// 20/08/2026) -- testado ao vivo com os mesmos casos usados pra validar
+// o 2.5-flash (troca de praça, deslogar formal, "Livre" sozinho,
+// pergunta financeira) e manteve a mesma qualidade de classificação,
+// mas com cota gratuita de 15 req/min em vez de 5 req/min (confirmado
+// contra o erro 429 real da API, não documentação de terceiros) -- mais
+// folga pra absorver picos de mensagens/backlog depois de um período
+// fora do ar. Esse modelo não aceita thinkingConfig (dá 400) -- já não
+// gasta tokens de raciocínio por padrão, então nem precisa.
 async function chamarGemini(prompt: string, maxTokens = 150): Promise<any> {
   const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) throw new Error('GEMINI_API_KEY não configurada.');
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -674,12 +684,6 @@ async function chamarGemini(prompt: string, maxTokens = 150): Promise<any> {
           // vezes envolvia a resposta em ```json ... ``` apesar da
           // instrução, quebrando o JSON.parse silenciosamente.
           responseMimeType: 'application/json',
-          // Sem isso o modelo gasta ~15-20 tokens de "pensamento" por
-          // chamada antes de responder (contam dentro de maxOutputTokens),
-          // o que arrisca estourar MAX_TOKENS em lotes maiores sem
-          // necessidade -- essa classificação é direta, não precisa de
-          // raciocínio estendido.
-          thinkingConfig: { thinkingBudget: 0 },
         },
       }),
     },

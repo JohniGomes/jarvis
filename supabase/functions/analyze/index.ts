@@ -49,14 +49,18 @@ async function generateAnalysisSummary(data: AnalysisData): Promise<string> {
     throw new Error('GEMINI_API_KEY não configurada nos secrets da função (supabase secrets set GEMINI_API_KEY=...).');
   }
 
+  // gemini-3.5-flash-lite (trocado de gemini-2.5-flash em 20/08/2026,
+  // mesmo motivo de chatwoot-troca-praca/index.ts) -- cota gratuita de
+  // 15 req/min em vez de 5. Não aceita thinkingConfig (400) mas também
+  // não gasta tokens de raciocínio por padrão, então não precisa.
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: buildAnalysisPrompt(data) }] }],
-        generationConfig: { maxOutputTokens: 700, thinkingConfig: { thinkingBudget: 0 } },
+        generationConfig: { maxOutputTokens: 700 },
       }),
     },
   );
