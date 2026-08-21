@@ -73,7 +73,7 @@ Nenhum dado fica gravado no repositório.
      autenticação de usuário do Supabase).
    - Secrets da função (mesma aba Settings, ou Edge Functions → Secrets no
      nível do projeto): `CHATWOOT_TOKEN` (função `send-chatwoot`) e
-     `CLAUDE_API_KEY` (função `analyze`). `SUPABASE_URL` e
+     `GEMINI_API_KEY` (funções `analyze` e `chatwoot-troca-praca`). `SUPABASE_URL` e
      `SUPABASE_SERVICE_ROLE_KEY` **não precisam** ser cadastrados — o
      Supabase já injeta os dois automaticamente em toda função.
 3. **Chave pública no front-end**: `index.html` usa a chave `publishable`

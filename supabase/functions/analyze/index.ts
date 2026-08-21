@@ -1,8 +1,12 @@
 // Resumo com IA (aba Análise) -- porta de generateAnalysisSummary/
-// buildAnalysisPrompt do Code.gs. A chave da Claude API nunca passa pelo
+// buildAnalysisPrompt do Code.gs. A chave da API nunca passa pelo
 // navegador nem fica no código -- vive só nos Secrets da função.
 // O painel (index.html) é público e roda num domínio diferente (GitHub
 // Pages) do Supabase, então a função precisa liberar CORS explicitamente.
+//
+// Trocado de Claude pra Gemini 2.5 Flash em 20/08/2026 -- pedido do
+// usuário depois que os créditos da Anthropic acabaram (ver mesma
+// decisão em chatwoot-troca-praca/index.ts).
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -40,31 +44,29 @@ Deno.serve(async (req: Request) => {
 });
 
 async function generateAnalysisSummary(data: AnalysisData): Promise<string> {
-  const apiKey = Deno.env.get('CLAUDE_API_KEY');
+  const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) {
-    throw new Error('CLAUDE_API_KEY não configurada nos secrets da função (supabase secrets set CLAUDE_API_KEY=...).');
+    throw new Error('GEMINI_API_KEY não configurada nos secrets da função (supabase secrets set GEMINI_API_KEY=...).');
   }
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: buildAnalysisPrompt(data) }] }],
+        generationConfig: { maxOutputTokens: 700, thinkingConfig: { thinkingBudget: 0 } },
+      }),
     },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 700,
-      messages: [{ role: 'user', content: buildAnalysisPrompt(data) }],
-    }),
-  });
+  );
 
   const json = await response.json();
   if (!response.ok) {
     const msg = json.error?.message || JSON.stringify(json);
-    throw new Error(`Erro na API da Anthropic (${response.status}): ${msg}`);
+    throw new Error(`Erro na API do Gemini (${response.status}): ${msg}`);
   }
-  return json.content?.[0]?.text || '';
+  return json.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
 function buildAnalysisPrompt(data: AnalysisData): string {

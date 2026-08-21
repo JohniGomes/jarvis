@@ -624,7 +624,7 @@ async function classificarPedidosEmLote(contextos: string[][]): Promise<(Classif
 
   // ~80 tokens de folga por item de resposta + margem fixa pro resto do JSON.
   const maxTokens = Math.min(4096, 80 * contextos.length + 150);
-  const resultado = await chamarClaude(prompt, maxTokens);
+  const resultado = await chamarGemini(prompt, maxTokens);
 
   if (!Array.isArray(resultado)) {
     throw new Error(`Classificação em lote não veio como array: ${JSON.stringify(resultado)}`);
@@ -648,42 +648,59 @@ async function classificarPraca(mensagem: string): Promise<{ praca_codigo: strin
     `Resposta do entregador: "${mensagem}"`,
   ].join('\n');
 
-  return await chamarClaude(prompt);
+  return await chamarGemini(prompt);
 }
 
-async function chamarClaude(prompt: string, maxTokens = 150): Promise<any> {
-  const apiKey = Deno.env.get('CLAUDE_API_KEY');
-  if (!apiKey) throw new Error('CLAUDE_API_KEY não configurada.');
+// Trocado de Claude pra Gemini 2.5 Flash em 20/08/2026 -- pedido do
+// usuário depois que os créditos da Anthropic acabaram e a recarga
+// mínima do proxy residencial (DataImpulse) ficou inviável no mesmo mês.
+// Gemini tem tier gratuito (sem cartão) suficiente pro nosso volume, já
+// que o processamento em lote (ver classificarPedidosEmLote) já reduz
+// bastante o número de chamadas por ciclo.
+async function chamarGemini(prompt: string, maxTokens = 150): Promise<any> {
+  const apiKey = Deno.env.get('GEMINI_API_KEY');
+  if (!apiKey) throw new Error('GEMINI_API_KEY não configurada.');
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          // Força saída JSON de verdade -- diferente do Claude, que às
+          // vezes envolvia a resposta em ```json ... ``` apesar da
+          // instrução, quebrando o JSON.parse silenciosamente.
+          responseMimeType: 'application/json',
+          // Sem isso o modelo gasta ~15-20 tokens de "pensamento" por
+          // chamada antes de responder (contam dentro de maxOutputTokens),
+          // o que arrisca estourar MAX_TOKENS em lotes maiores sem
+          // necessidade -- essa classificação é direta, não precisa de
+          // raciocínio estendido.
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
     },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+  );
 
   const json = await response.json();
-  if (!response.ok) throw new Error(`Claude API (${response.status}): ${json.error?.message || JSON.stringify(json)}`);
+  if (!response.ok) throw new Error(`Gemini API (${response.status}): ${json.error?.message || JSON.stringify(json)}`);
 
-  // Apesar da instrução "sem markdown", o modelo às vezes envolve a
-  // resposta em ```json ... ``` -- isso quebrava o JSON.parse silenciosamente
-  // (caía no catch, virava null, e a mensagem era ignorada por engano).
-  // Tira a cerca de código antes de tentar parsear.
-  let texto = json.content?.[0]?.text?.trim() || '{}';
-  const match = texto.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (match) texto = match[1].trim();
+  var candidato = json.candidates?.[0];
+  // finishReason "MAX_TOKENS" com response vazio = o maxTokens passado
+  // era pequeno demais pro tamanho do lote -- melhor saber disso do que
+  // silenciosamente devolver null.
+  if (candidato?.finishReason === 'MAX_TOKENS' && !candidato?.content?.parts?.length) {
+    throw new Error(`Gemini cortou a resposta por MAX_TOKENS (maxOutputTokens=${maxTokens}) antes de gerar qualquer conteúdo.`);
+  }
+  const texto = candidato?.content?.parts?.[0]?.text?.trim() || '{}';
 
   try {
     return JSON.parse(texto);
   } catch (e) {
-    console.error('Falha ao parsear resposta da Claude:', texto, e);
+    console.error('Falha ao parsear resposta do Gemini:', texto, e);
     return null;
   }
 }
