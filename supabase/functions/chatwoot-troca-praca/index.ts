@@ -70,6 +70,17 @@ function respostaNoop(): string {
   return RESPOSTAS_NOOP[Math.floor(Math.random() * RESPOSTAS_NOOP.length)];
 }
 
+// Pedido do usuário 22/08/2026: gente que só manda "Bom dia" (ou "Boa
+// tarde"/"Boa noite"), sem pedir mais nada, ficava sem resposta nenhuma
+// (caía em "nenhum dos tipos" -> silêncio). Agora responde de volta com
+// o mesmo período do dia + oferece ajuda.
+const RESPOSTAS_SAUDACAO: Record<string, string> = {
+  bom_dia: 'Bom dia! Em que posso ajudar?',
+  boa_tarde: 'Boa tarde! Em que posso ajudar?',
+  boa_noite: 'Boa noite! Em que posso ajudar?',
+  generica: 'Oi! Em que posso ajudar?',
+};
+
 // Fluxo de boas-vindas pro novato (pedido do usuário 06/08/2026). O
 // atendente manda manualmente a mensagem de aprovação ("Eu tenho uma boa
 // notícia FULANO...") -- o bot só entra em ação DEPOIS disso, olhando pro
@@ -495,6 +506,11 @@ async function executarClassificacao(supabase: any, chatwootToken: string, conve
     return { acao: `resposta_pronta_${classificacao.categoria}` };
   }
 
+  if (classificacao?.saudacao && classificacao.saudacao in RESPOSTAS_SAUDACAO) {
+    await responder(chatwootToken, conversationId, RESPOSTAS_SAUDACAO[classificacao.saudacao]);
+    return { acao: `saudacao_${classificacao.saudacao}` };
+  }
+
   if (!classificacao?.eh_pedido_troca || !classificacao.praca_codigo) {
     return { acao: 'ignorado_sem_resposta' };
   }
@@ -542,6 +558,7 @@ type Classificacao = {
   categoria: string | null;
   eh_pedido_deslogar: boolean;
   novato_etapa: string | null;
+  saudacao: string | null;
 };
 
 // Quantas conversas entram numa chamada só à Claude. Decisão do usuário
@@ -559,7 +576,7 @@ function promptClassificacaoBase(): string {
   const listaPracas = Object.entries(PRACAS).map(([cod, nome]) => `${cod} = "${nome}"`).join('\n');
   const listaCategorias = Object.entries(CATEGORIAS_RESPOSTA_PRONTA).map(([cat, desc]) => `${cat} = ${desc}`).join('\n');
   return [
-    'Você classifica mensagens de entregadores em UM destes 5 tipos:',
+    'Você classifica mensagens de entregadores em UM destes 6 tipos:',
     '',
     '1) TROCA/ALOCAÇÃO DE PRAÇA (eh_pedido_troca: true) -- mudar ou definir a região/área onde vai',
     '   trabalhar. Trate como isso QUALQUER mensagem pedindo pra ser colocado/alocado/disponibilizado',
@@ -601,8 +618,18 @@ function promptClassificacaoBase(): string {
     '       trata -> novato_etapa: null (assunto financeiro fica só com atendimento humano; não',
     '       adivinhe o resto)',
     '',
-    '5) Nenhum dos quatro (pagamento fora do listado acima, nota fiscal, reclamação, "bom dia"/',
-    '   agradecimento sozinho, dúvida geral) -- todos os campos false/null.',
+    '5) SAUDAÇÃO SOZINHA (campo saudacao) -- a mensagem é SÓ um cumprimento, sem pedir mais nada',
+    '   junto (nem antes na conversa sem resposta, nem na própria mensagem). "Bom dia", "Boa tarde",',
+    '   "Boa noite", "Oi", "Olá" sozinhos (com ou sem pontuação/emoji) contam. Valores possíveis:',
+    '     "bom dia" -> saudacao: "bom_dia"',
+    '     "boa tarde" -> saudacao: "boa_tarde"',
+    '     "boa noite" -> saudacao: "boa_noite"',
+    '     "oi"/"olá"/cumprimento genérico sem período do dia -> saudacao: "generica"',
+    '   NÃO use essa categoria se a mensagem tiver qualquer outro pedido junto (ex.: "Bom dia,',
+    '   poderia me deslogar" é DESLOGAR, não saudação -- o pedido de verdade sempre tem prioridade).',
+    '',
+    '6) Nenhum dos cinco (pagamento fora do listado acima, nota fiscal, reclamação, agradecimento',
+    '   sozinho, dúvida geral) -- todos os campos false/null.',
     '',
     'Praças válidas (só usadas se eh_pedido_troca for true):',
     listaPracas,
@@ -628,15 +655,15 @@ async function classificarPedidosEmLote(contextos: string[][]): Promise<(Classif
     'mensagens mais recente por último, rotuladas "entregador" ou "atendente"). Classifique CADA',
     'conversa independentemente, aplicando as regras acima. Responda APENAS um JSON válido (um',
     'array), sem markdown, no formato:',
-    '[{"id": 0, "eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null, "eh_pedido_deslogar": true|false, "novato_etapa": "sem_duvida"|"duvida_generica"|"duvida_mapa"|"duvida_horario"|"duvida_agendamento" ou null}, ...]',
+    '[{"id": 0, "eh_pedido_troca": true|false, "praca_codigo": "CODIGO_EXATO_DA_LISTA" ou null, "categoria": "NOME_DA_CATEGORIA" ou null, "eh_pedido_deslogar": true|false, "novato_etapa": "sem_duvida"|"duvida_generica"|"duvida_mapa"|"duvida_horario"|"duvida_agendamento" ou null, "saudacao": "bom_dia"|"boa_tarde"|"boa_noite"|"generica" ou null}, ...]',
     `Devolva exatamente ${contextos.length} objeto(s), um pra cada conversa numerada de 0 a ${contextos.length - 1},`,
     'com o campo "id" batendo com o número da conversa (a ordem dos objetos no array não importa,',
     'o "id" que importa).',
     '',
     'praca_codigo só deve vir preenchido se uma praça específica da lista foi mencionada com clareza.',
-    'No máximo UM entre eh_pedido_troca, categoria, eh_pedido_deslogar e novato_etapa deve indicar',
-    'positivo por vez pra cada conversa -- se tiver qualquer dúvida sobre qual, prefira deixar tudo',
-    'negativo/null pra aquela conversa.',
+    'No máximo UM entre eh_pedido_troca, categoria, eh_pedido_deslogar, novato_etapa e saudacao deve',
+    'indicar positivo por vez pra cada conversa -- se tiver qualquer dúvida sobre qual, prefira deixar',
+    'tudo negativo/null pra aquela conversa.',
     '',
     conversasTexto,
   ].join('\n');
