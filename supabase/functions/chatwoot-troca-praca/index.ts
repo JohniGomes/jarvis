@@ -31,6 +31,11 @@ const CHATWOOT_BASE_URL = 'https://chatwoot.rayo-ia.com.br';
 const CHATWOOT_ACCOUNT_ID = 2;
 const MENSAGENS_DE_CONTEXTO = 12; // pedidos reais vistos hoje (06/08) ficaram enterrados sob mensagens soltas ("Oii", "Porfavor") -- 5 era pouco
 
+// Quanto tempo (minutos, a partir da mensagem original) o bot continua
+// tentando de novo automaticamente uma troca de praça que falhou, antes
+// de desistir de vez -- ver uso em Fase 2 do handler principal.
+const RETRY_TROCA_MAX_MIN = 10;
+
 // PRAÇAS precisa ficar em sincronia com as options do <select> em
 // https://api-automaturno.rly9ea.easypanel.host/admin/<token> -- se o
 // parceiro adicionar/renomear praça, atualiza aqui também.
@@ -296,6 +301,24 @@ Deno.serve(async (req: Request) => {
         try {
           const resultado = await executarClassificacao(supabase, chatwootToken, conv.id, msg, classificacoes[i]);
           processados.push({ conversation_id: conv.id, message_id: msg.id, ...resultado });
+
+          // Casos reais 21-22/08/2026 (Caique, Wellington, Gustavo, Andreano):
+          // "troca_falhou_sem_resposta" quase sempre é falha intermitente do
+          // parceiro, não um problema de dado -- em todos os casos, tentar de
+          // novo minutos depois resolvia sozinho, mas isso exigia alguém
+          // notar a reclamação e reexecutar na mão. Em vez de marcar como
+          // processada de vez, deixa tentar de novo automaticamente nos
+          // próximos ciclos (1 min cada) enquanto a mensagem for "recente"
+          // (RETRY_TROCA_MAX_MIN) -- depois disso desiste de vez, do jeito
+          // que já era antes (silêncio, log pra revisão humana), pra não
+          // ficar tentando pra sempre um caso genuinamente quebrado (CPF/
+          // praça inválidos, por exemplo).
+          const idadeMinutos = (Date.now() - msg.created_at * 1000) / 60000;
+          const continuaTentando = resultado.acao === 'troca_falhou_sem_resposta' && idadeMinutos < RETRY_TROCA_MAX_MIN;
+          if (continuaTentando) {
+            console.log(`Troca falhou (conversa ${conv.id}, mensagem com ${idadeMinutos.toFixed(1)}min) -- tenta de novo no próximo ciclo, sem marcar como processada.`);
+            continue;
+          }
 
           await supabase.from('chatwoot_mensagens_processadas').insert({
             message_id: msg.id,
