@@ -730,16 +730,19 @@ async function chamarGemini(prompt: string, maxTokens = 150): Promise<any> {
 
 // Casos reais 21-22/08/2026: a mesma chamada que retornava
 // "troca_falhou_sem_resposta" (silêncio, atendente tinha que
-// investigar/reexecutar na mão) às vezes dava certo de cara na segunda
-// tentativa, sem mudar CPF nem praça -- indica falha intermitente do
-// lado do parceiro, não um problema de dado. Tenta até 3x com uma
-// pausa curta antes de desistir de verdade, pra não depender de
-// intervenção manual em toda falha passageira.
+// investigar/reexecutar na mão) às vezes dava certo de cara ao tentar
+// de novo, sem mudar CPF nem praça -- indica falha intermitente do lado
+// do parceiro, não um problema de dado. Um retry de 3x/2s (~4s de
+// cobertura) NÃO foi suficiente -- viu-se falha nas 3 tentativas mesmo
+// assim, resolvida só minutos depois manualmente (22/08/2026, caso do
+// Wellington). Backoff progressivo até ~14s de cobertura -- mais que
+// antes, mas sem deixar UMA troca travada demorar tanto que arrisque o
+// timeout do ciclo inteiro se várias falharem juntas no mesmo lote.
 async function executarTroca(cpf: string, pracaCodigo: string) {
   const url = 'https://api-automaturno.rly9ea.easypanel.host/admin/f1c488c58cbd6cea2ac17df3f5d5b5be/trocar';
-  const MAX_TENTATIVAS = 3;
+  const ESPERAS_MS = [2000, 4000, 8000]; // 4 tentativas, ~14s de cobertura total
   let ultimoResultado: any = null;
-  for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+  for (let tentativa = 1; tentativa <= ESPERAS_MS.length + 1; tentativa++) {
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -753,7 +756,8 @@ async function executarTroca(cpf: string, pracaCodigo: string) {
     } catch (err) {
       ultimoResultado = { status_parceiro: 0, corpo_parceiro: { success: false, error: String(err) } };
     }
-    if (tentativa < MAX_TENTATIVAS) await new Promise((r) => setTimeout(r, 2000));
+    const espera = ESPERAS_MS[tentativa - 1];
+    if (espera) await new Promise((r) => setTimeout(r, espera));
   }
   return ultimoResultado;
 }
