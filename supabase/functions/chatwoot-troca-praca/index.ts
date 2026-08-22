@@ -728,15 +728,34 @@ async function chamarGemini(prompt: string, maxTokens = 150): Promise<any> {
   }
 }
 
+// Casos reais 21-22/08/2026: a mesma chamada que retornava
+// "troca_falhou_sem_resposta" (silêncio, atendente tinha que
+// investigar/reexecutar na mão) às vezes dava certo de cara na segunda
+// tentativa, sem mudar CPF nem praça -- indica falha intermitente do
+// lado do parceiro, não um problema de dado. Tenta até 3x com uma
+// pausa curta antes de desistir de verdade, pra não depender de
+// intervenção manual em toda falha passageira.
 async function executarTroca(cpf: string, pracaCodigo: string) {
   const url = 'https://api-automaturno.rly9ea.easypanel.host/admin/f1c488c58cbd6cea2ac17df3f5d5b5be/trocar';
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cpf, subpraca_id: pracaCodigo }),
-  });
-  const dados = await response.json();
-  return dados; // { status_parceiro, corpo_parceiro: { success, action, subPraca, ... } }
+  const MAX_TENTATIVAS = 3;
+  let ultimoResultado: any = null;
+  for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf, subpraca_id: pracaCodigo }),
+      });
+      const dados = await response.json();
+      ultimoResultado = dados; // { status_parceiro, corpo_parceiro: { success, action, subPraca, ... } }
+      const statusOk = dados?.status_parceiro >= 200 && dados?.status_parceiro < 300 && dados?.corpo_parceiro?.success !== false;
+      if (statusOk) return dados;
+    } catch (err) {
+      ultimoResultado = { status_parceiro: 0, corpo_parceiro: { success: false, error: String(err) } };
+    }
+    if (tentativa < MAX_TENTATIVAS) await new Promise((r) => setTimeout(r, 2000));
+  }
+  return ultimoResultado;
 }
 
 // Retorna null quando não deu certo (noop ou erro) -- nesse caso não
