@@ -57,6 +57,19 @@ function respostaSucesso(): string {
   return RESPOSTAS_SUCESSO[Math.floor(Math.random() * RESPOSTAS_SUCESSO.length)];
 }
 
+// Bug real reportado pelo usuário 22/08/2026: quando o parceiro retorna
+// action "noop" (pedido de troca que já está satisfeito -- a pessoa já
+// está na praça pedida), o bot ficava em silêncio total (mesma regra do
+// silêncio-em-falha), e o entregador nunca sabia que o pedido dele já
+// tinha sido atendido antes -- ficava mandando "??" de novo sem parar,
+// achando que ninguém tinha visto. "noop" com success:true NÃO é uma
+// falha (é o parceiro confirmando que já está tudo certo), então merece
+// confirmação como as outras, só que deixando claro que já estava assim.
+const RESPOSTAS_NOOP = ['Você já tá nessa praça!', 'Já tá certinho, você já tá nessa praça.', 'Opa, já tá aí, viu?', 'Já tava nessa praça mesmo -- tá tudo certo.'];
+function respostaNoop(): string {
+  return RESPOSTAS_NOOP[Math.floor(Math.random() * RESPOSTAS_NOOP.length)];
+}
+
 // Fluxo de boas-vindas pro novato (pedido do usuário 06/08/2026). O
 // atendente manda manualmente a mensagem de aprovação ("Eu tenho uma boa
 // notícia FULANO...") -- o bot só entra em ação DEPOIS disso, olhando pro
@@ -513,8 +526,14 @@ async function executarEResponder(supabase: any, chatwootToken: string, conversa
   if (mensagemResposta) {
     await responder(chatwootToken, conversationId, mensagemResposta);
   }
+  // "troca_ja_estava" (noop confirmado) separado de "troca_executada"
+  // (mudança real) -- distinção adicionada 22/08/2026 pra facilitar
+  // investigar esse tipo de caso no futuro sem precisar reabrir o
+  // resultado bruto de cada linha.
+  const ehNoop = resultado?.corpo_parceiro?.action === 'noop';
   const sucesso = mensagemResposta !== null;
-  return { acao: sucesso ? 'troca_executada' : 'troca_falhou_sem_resposta', praca: pracaCodigo, resultado };
+  const acao = !sucesso ? 'troca_falhou_sem_resposta' : (ehNoop ? 'troca_ja_estava' : 'troca_executada');
+  return { acao, praca: pracaCodigo, resultado };
 }
 
 type Classificacao = {
@@ -729,7 +748,7 @@ function formatarResposta(resultado: any): string | null {
   const statusOk = resultado?.status_parceiro >= 200 && resultado?.status_parceiro < 300 && corpo?.success !== false;
 
   if (statusOk && corpo?.action === 'noop') {
-    return null;
+    return respostaNoop();
   }
   if (statusOk) {
     return respostaSucesso();
