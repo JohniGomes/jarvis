@@ -211,6 +211,7 @@
     <button type="button" class="tab-btn" data-view="meta">Meta</button>
     <button type="button" class="tab-btn" data-view="campanhas">Campanhas</button>
     <button type="button" class="tab-btn" data-view="semCorridas">Sem Corridas</button>
+    <button type="button" class="tab-btn" data-view="semNf">Sem NF</button>
   </div>
 
   <section class="panel" id="viewDesempenho">
@@ -454,6 +455,30 @@
     </div>
   </section>
 
+  <section class="panel" id="viewSemNf" hidden>
+    <div class="panel__bar">
+      <span class="panel__title">Sem NF (cobran&ccedil;a semanal)</span>
+      <span class="count-badge" id="semNfCount">0</span>
+    </div>
+    <div class="analise-body">
+      <p class="analise-col__hint">Suba o .xlsx recebido do financeiro toda semana (mesmas colunas: Data Repasse Previsto, Id Entregador, Entregador, Cidade, Matriz, Valor a Emitir NF, CPF, Telefone). O bot&atilde;o envia direto pelo WhatsApp Business (Chatwoot), template "sem_nf".</p>
+      <div class="sim-card__row" style="gap: 8px;">
+        <input type="file" id="semNfFileInput" accept=".xlsx,.xls">
+        <button type="button" id="semNfImportarBtn">Importar planilha</button>
+        <span id="semNfImportarMsg" class="empty-hint"></span>
+      </div>
+      <div class="sim-card__row" style="margin-top: 10px; gap: 8px;">
+        <select id="semNfSemanaFiltro"><option value="">Todas as semanas</option></select>
+      </div>
+      <div class="table-scroll" style="margin-top: 10px;">
+        <table class="mini-table">
+          <thead><tr><th>Entregador</th><th>Cidade</th><th>Valor a Emitir NF</th><th>Repasse previsto</th><th>A&ccedil;&atilde;o</th></tr></thead>
+          <tbody id="semNfBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <details class="note">
     <summary><span>Como os n&uacute;meros s&atilde;o calculados &middot; limita&ccedil;&otilde;es do cruzamento</span></summary>
     <div class="note__body">
@@ -466,6 +491,9 @@
   <footer class="pagefoot" id="pageFooter"></footer>
 </div>
 
+<!-- SheetJS -- só usada pra ler o .xlsx de "Sem NF" (upload manual semanal)
+     direto no navegador, sem precisar de robô/backend pra isso. -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 (function () {
   // Supabase substituiu o Google Sheets/Apps Script como fonte de dados. O
@@ -545,6 +573,8 @@
   // todo dia pelo robô, então esse controle não pode viver nela).
   var chatwootEnviosCpfs = {};
   var superMaisEnviosCpfs = {};
+  var semNfEnviosChave = {};
+  var semNfRows = [];
 
   function loadDashboard() {
     Promise.all([
@@ -553,6 +583,12 @@
       supaFetchAll('sem_corridas', 'cpf.asc'),
       supaFetchAll('chatwoot_envios', 'cpf.asc'),
       supaFetchAll('super_mais_envios', 'cpf.asc'),
+      // Tolerante a 404: essas duas tabelas só existem depois que o SQL da
+      // aba "Sem NF" for rodado no Supabase -- até lá, não pode derrubar o
+      // resto do painel (Promise.all rejeitaria tudo por causa de 2 tabelas
+      // novas).
+      supaFetchAll('sem_nf', 'data_repasse_previsto.desc').catch(function () { return []; }),
+      supaFetchAll('chatwoot_envios_sem_nf', 'cpf.asc').catch(function () { return []; }),
     ])
       .then(function (results) {
         var d1Rows = results[0].map(function (r) {
@@ -574,6 +610,16 @@
         superMaisEnviosCpfs = {};
         results[4].forEach(function (r) {
           superMaisEnviosCpfs[String(r.cpf || '')] = true;
+        });
+        semNfRows = results[5].map(function (r) {
+          return {
+            cpf: r.cpf, nome: r.nome, telefone: r.telefone, cidade: r.cidade,
+            valor_a_emitir_nf: r.valor_a_emitir_nf, data_repasse_previsto: r.data_repasse_previsto,
+          };
+        });
+        semNfEnviosChave = {};
+        results[6].forEach(function (r) {
+          semNfEnviosChave[String(r.cpf || '') + '|' + String(r.data_repasse_previsto || '')] = true;
         });
         loadingScreen.hidden = true;
         dashboardScreen.hidden = false;
@@ -2073,6 +2119,199 @@
       });
   }
 
+  // ---- Sem NF (cobrança semanal de nota fiscal, pedido do usuário 27/08/2026) ----
+
+  // Cabeçalhos esperados no .xlsx do financeiro -- comparação sem acento/
+  // maiúscula pra não quebrar se vier "Valor a Emitir NF" vs "Valor a emitir NF"
+  // etc. numa exportação diferente.
+  function normHeader(h) {
+    return String(h || '').trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  }
+  var SEM_NF_COLUNAS = {
+    'DATA REPASSE PREVISTO': 'data_repasse_previsto',
+    'ID ENTREGADOR': 'id_entregador',
+    'ENTREGADOR': 'nome',
+    'CIDADE': 'cidade',
+    'MATRIZ': 'matriz',
+    'VALOR A EMITIR NF': 'valor_a_emitir_nf',
+    'CPF': 'cpf',
+    'TELEFONE': 'telefone',
+  };
+
+  // Datas de planilha Excel vêm como número serial (dias desde 1899-12-30)
+  // quando a célula tem formato de data -- converte pro YYYY-MM-DD que o
+  // banco espera. Se já vier como texto (DD/MM/AAAA), trata direto.
+  function excelDateParaISO(valor) {
+    if (valor instanceof Date) {
+      return valor.getFullYear() + '-' + pad2(valor.getMonth() + 1) + '-' + pad2(valor.getDate());
+    }
+    if (typeof valor === 'number') {
+      var epoch = new Date(Date.UTC(1899, 11, 30));
+      var d = new Date(epoch.getTime() + valor * 86400000);
+      return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
+    }
+    // Texto "DD/MM/AAAA" (célula sem formato de data no Excel).
+    var m = String(valor || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) return m[3] + '-' + pad2(Number(m[2])) + '-' + pad2(Number(m[1]));
+    return '';
+  }
+
+  function importarSemNf() {
+    var input = document.getElementById('semNfFileInput');
+    var msg = document.getElementById('semNfImportarMsg');
+    var btn = document.getElementById('semNfImportarBtn');
+    var file = input.files && input.files[0];
+    if (!file) {
+      msg.textContent = 'Escolha um arquivo primeiro.';
+      return;
+    }
+    btn.disabled = true;
+    msg.textContent = 'Lendo planilha...';
+
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
+        var sheet = wb.Sheets[wb.SheetNames[0]];
+        var raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        if (!raw.length) throw new Error('Planilha vazia.');
+
+        var headerRow = raw[0].map(normHeader);
+        var colIndex = {};
+        headerRow.forEach(function (h, i) {
+          if (SEM_NF_COLUNAS[h]) colIndex[SEM_NF_COLUNAS[h]] = i;
+        });
+        var faltando = ['data_repasse_previsto', 'nome', 'cpf'].filter(function (k) { return colIndex[k] === undefined; });
+        if (faltando.length) {
+          throw new Error('Coluna faltando na planilha: ' + faltando.join(', ') + '. Confira se os cabeçalhos batem com o esperado.');
+        }
+
+        var linhas = [];
+        for (var i = 1; i < raw.length; i++) {
+          var r = raw[i];
+          if (!r || !r.length) continue;
+          var cpfVal = String(r[colIndex.cpf] || '').replace(/\D/g, '');
+          var nomeVal = String(r[colIndex.nome] || '').trim();
+          if (!cpfVal || !nomeVal) continue; // linha em branco/rodapé
+          linhas.push({
+            data_repasse_previsto: excelDateParaISO(r[colIndex.data_repasse_previsto]),
+            id_entregador: colIndex.id_entregador !== undefined ? String(r[colIndex.id_entregador] || '') : null,
+            nome: nomeVal,
+            cidade: colIndex.cidade !== undefined ? String(r[colIndex.cidade] || '') : null,
+            matriz: colIndex.matriz !== undefined ? String(r[colIndex.matriz] || '') : null,
+            valor_a_emitir_nf: colIndex.valor_a_emitir_nf !== undefined ? (Number(r[colIndex.valor_a_emitir_nf]) || 0) : null,
+            cpf: cpfVal,
+            telefone: colIndex.telefone !== undefined ? String(r[colIndex.telefone] || '') : null,
+          });
+        }
+        if (!linhas.length) throw new Error('Nenhuma linha válida encontrada na planilha.');
+
+        msg.textContent = 'Importando ' + linhas.length + ' linha(s)...';
+        return fetch(SUPABASE_URL + '/functions/v1/sem-nf-importar', {
+          method: 'POST',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ linhas: linhas }),
+        })
+          .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+          .then(function (res) {
+            if (res.body && res.body.error) {
+              throw new Error(res.body.error);
+            }
+            msg.textContent = res.body.importadas + ' linha(s) importada(s)' + (res.body.invalidas ? ' (' + res.body.invalidas + ' inválida(s) ignorada(s))' : '') + '.';
+            input.value = '';
+            loadDashboard();
+          });
+      } catch (err) {
+        msg.textContent = 'Erro: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    };
+    reader.onerror = function () {
+      msg.textContent = 'Erro ao ler o arquivo.';
+      btn.disabled = false;
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function renderSemNf() {
+    var semanaSelect = document.getElementById('semNfSemanaFiltro');
+    var semanaAtual = semanaSelect.value;
+    var semanas = Array.from(new Set(semNfRows.map(function (r) { return r.data_repasse_previsto; }))).sort().reverse();
+    semanaSelect.innerHTML = '<option value="">Todas as semanas</option>' +
+      semanas.map(function (s) { return '<option value="' + s + '">' + isoToBR(s) + '</option>'; }).join('');
+    if (semanas.indexOf(semanaAtual) !== -1) semanaSelect.value = semanaAtual;
+
+    var filtro = semanaSelect.value;
+    var rows = filtro ? semNfRows.filter(function (r) { return r.data_repasse_previsto === filtro; }) : semNfRows.slice();
+    rows.sort(function (a, b) { return (b.data_repasse_previsto || '').localeCompare(a.data_repasse_previsto || ''); });
+
+    document.getElementById('semNfCount').textContent = rows.length;
+    var body = document.getElementById('semNfBody');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5" class="empty-hint">Nenhum registro -- importe a planilha do financeiro acima.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(function (r) {
+      var chave = r.cpf + '|' + r.data_repasse_previsto;
+      var jaEnviado = !!semNfEnviosChave[chave];
+      var btnHtml = jaEnviado
+        ? '<button type="button" class="send-sem-nf-btn" disabled>Enviado ✅</button>'
+        : '<button type="button" class="send-sem-nf-btn" data-cpf="' + r.cpf + '" data-data="' + r.data_repasse_previsto + '">Enviar</button>';
+      var valor = r.valor_a_emitir_nf != null ? Number(r.valor_a_emitir_nf).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '';
+      return '<tr>' +
+        '<td>' + (r.nome || '') + '</td>' +
+        '<td>' + (r.cidade || '') + '</td>' +
+        '<td>' + valor + '</td>' +
+        '<td>' + isoToBR(r.data_repasse_previsto) + '</td>' +
+        '<td>' + btnHtml + '</td>' +
+        '</tr>';
+    }).join('');
+    body.querySelectorAll('.send-sem-nf-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { sendChatwootSemNf(btn); });
+    });
+  }
+
+  function sendChatwootSemNf(btn) {
+    var cpf = btn.getAttribute('data-cpf');
+    var data = btn.getAttribute('data-data');
+    btn.disabled = true;
+    btn.textContent = 'Enviando…';
+    fetch(SUPABASE_URL + '/functions/v1/send-chatwoot-sem-nf', {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cpf: cpf, data_repasse_previsto: data }),
+    })
+      .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+      .then(function (res) {
+        if (res.body && res.body.error) {
+          if (res.status === 409) {
+            btn.textContent = 'Enviado ✅';
+            return;
+          }
+          btn.disabled = false;
+          btn.textContent = 'Enviar';
+          alert('Erro ao enviar: ' + res.body.error);
+          return;
+        }
+        btn.textContent = 'Enviado ✅';
+        semNfEnviosChave[cpf + '|' + data] = true;
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = 'Enviar';
+        alert('Erro ao enviar: ' + err.message);
+      });
+  }
+
   function renderTable() {
     var q = document.getElementById('searchInput').value.trim().toLowerCase();
     var rows = merged.filter(function (p) { return p.d1; });
@@ -2180,6 +2419,7 @@
     RAW_D1 = d1Rows;
     POS_VENDAS_BY_NAME = buildPosVendasIndex(posVendasRows);
     renderSemCorridas(semCorridasRows || []);
+    renderSemNf();
 
     var periodos = sortPeriodos(Array.from(new Set(d1Rows.map(function (r) { return r.periodo; }).filter(Boolean))));
     var turnoSelect = document.getElementById('turnoFilter');
@@ -2236,6 +2476,7 @@
         document.getElementById('viewMeta').hidden = view !== 'meta';
         document.getElementById('viewCampanhas').hidden = view !== 'campanhas';
         document.getElementById('viewSemCorridas').hidden = view !== 'semCorridas';
+        document.getElementById('viewSemNf').hidden = view !== 'semNf';
       });
     });
     document.getElementById('simRange').addEventListener('input', renderSimulator);
@@ -2244,6 +2485,8 @@
     document.getElementById('escalasVagasTurnoFilter').addEventListener('change', renderEscalasVagasFiltered);
     document.getElementById('escalasVagasAreaFilter').addEventListener('change', renderEscalasVagasFiltered);
     loadEscalasVagas();
+    document.getElementById('semNfImportarBtn').addEventListener('click', importarSemNf);
+    document.getElementById('semNfSemanaFiltro').addEventListener('change', renderSemNf);
 
     var weekSelect = document.getElementById('campWeekSelect');
     CAMP_WEEKS.forEach(function (w, i) {

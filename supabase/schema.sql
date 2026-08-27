@@ -109,6 +109,50 @@ drop policy if exists "super_mais_envios leitura publica" on super_mais_envios;
 create policy "super_mais_envios leitura publica" on super_mais_envios for select using (true);
 
 -- ============================================================================
+-- sem_nf: planilha semanal do financeiro (Acompanhamento de Repasse) com
+-- quem falta emitir nota fiscal -- pedido do usuário 27/08/2026. Diferente
+-- de sem_corridas (mesma máquina, um robô mantém atualizada), essa é
+-- importada manualmente toda semana via upload de .xlsx (aba "Sem NF" do
+-- painel) porque o financeiro não disponibiliza um link vivo. Chave
+-- composta (cpf, data_repasse_previsto) porque a MESMA pessoa pode
+-- aparecer de novo em semanas diferentes -- cada semana é seu próprio
+-- registro, não sobrescreve a anterior.
+-- ============================================================================
+create table if not exists sem_nf (
+  cpf text not null,
+  data_repasse_previsto date not null,
+  id_entregador text,
+  nome text not null,
+  cidade text,
+  matriz text,
+  valor_a_emitir_nf numeric,
+  telefone text,
+  importado_em timestamptz not null default now(),
+  primary key (cpf, data_repasse_previsto)
+);
+
+alter table sem_nf enable row level security;
+drop policy if exists "sem_nf leitura publica" on sem_nf;
+create policy "sem_nf leitura publica" on sem_nf for select using (true);
+
+-- ============================================================================
+-- chatwoot_envios_sem_nf: mesma ideia do chatwoot_envios, só que por
+-- (cpf, data_repasse_previsto) em vez de só cpf -- a mesma pessoa pode (e
+-- deve) receber o lembrete de novo em semanas diferentes se continuar sem
+-- emitir, então o controle de "já mandei" é por semana, não pra sempre.
+-- ============================================================================
+create table if not exists chatwoot_envios_sem_nf (
+  cpf text not null,
+  data_repasse_previsto date not null,
+  enviado_em timestamptz not null default now(),
+  primary key (cpf, data_repasse_previsto)
+);
+
+alter table chatwoot_envios_sem_nf enable row level security;
+drop policy if exists "chatwoot_envios_sem_nf leitura publica" on chatwoot_envios_sem_nf;
+create policy "chatwoot_envios_sem_nf leitura publica" on chatwoot_envios_sem_nf for select using (true);
+
+-- ============================================================================
 -- agendamento_elegibilidade: espelho 1:1 da planilha de elegibilidade do
 -- booking (franqueado.entregolog.com/supply/driver-booking-import). Cada
 -- upload SUBSTITUI a lista inteira no site deles, então guardamos aqui o
