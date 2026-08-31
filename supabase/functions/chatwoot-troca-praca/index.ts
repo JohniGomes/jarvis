@@ -54,12 +54,10 @@ const PRACAS: Record<string, string> = {
   VILA_JAGUARA: 'Vila Jaguara',
 };
 
-// Personalidade das respostas de sucesso (pedido do usuário 06/08/2026) --
-// só usada quando a ação DEU CERTO. Escolhe uma variação aleatória em vez
-// de repetir sempre a mesma palavra.
-const RESPOSTAS_SUCESSO = ['Feito.', 'Opaa, feito!', 'Show, feito!', 'Belezinha, feito!', 'Faala mano! Feito.'];
+// Resposta de sucesso pra troca de praça (pedido do usuário 27/08/2026) --
+// fixa, sem variação aleatória.
 function respostaSucesso(): string {
-  return RESPOSTAS_SUCESSO[Math.floor(Math.random() * RESPOSTAS_SUCESSO.length)];
+  return 'Beleza, feito!';
 }
 
 // Bug real reportado pelo usuário 22/08/2026: quando o parceiro retorna
