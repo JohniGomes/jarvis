@@ -114,10 +114,16 @@ Deno.serve(async (req: Request) => {
     }
     if (!texto) return jsonResponse({ ok: true });
 
-    const vinculo = await buscarVinculo(supabase, chatId);
+    let vinculo = await buscarVinculo(supabase, chatId);
     if (!vinculo) {
-      await tratarVinculo(supabase, token, chatId, texto);
-      return jsonResponse({ ok: true });
+      // Pedido do usuário 27/08/2026: se a mesma mensagem que vincula o CPF
+      // já vier junto com o pedido de troca (ex.: "meu cpf é 123.456.789-01,
+      // me coloca em pinheiros"), não pode exigir uma segunda mensagem só
+      // pra repetir o pedido -- tratarVinculo devolve o vínculo recém-criado
+      // (ou null se ainda não conseguiu vincular) e o fluxo continua embaixo
+      // usando o MESMO texto da mensagem original.
+      vinculo = await tratarVinculo(supabase, token, chatId, texto);
+      if (!vinculo) return jsonResponse({ ok: true });
     }
 
     const classificacao = await classificarTroca(texto);
@@ -151,15 +157,21 @@ async function buscarVinculo(supabase: any, chatId: number) {
   return data;
 }
 
-// Primeira mensagem de um chat_id novo (ou ainda sem vínculo): tenta ler um
-// CPF na mensagem. Bate contra entregadores -- se achar, grava o vínculo de
-// vez. Se não, pede o CPF (não revela se o CPF existe ou não em detalhe,
-// só confirma ou pede de novo).
+// Primeira mensagem de um chat_id novo (ou ainda sem vínculo): tenta achar
+// um CPF na mensagem. Bate contra entregadores -- se achar, grava o vínculo
+// de vez e devolve {cpf, nome} pro chamador continuar processando a MESMA
+// mensagem (ex.: "meu cpf é 123.456.789-01, me coloca em pinheiros" não
+// pode exigir mandar o pedido de novo). Se não, pede o CPF e devolve null.
+//
+// Procura um padrão de CPF (11 dígitos, com ou sem pontuação) EM QUALQUER
+// PARTE do texto, em vez de exigir que a mensagem inteira seja só o CPF --
+// assim funciona tanto "12345678901" sozinho quanto misturado com o pedido.
 async function tratarVinculo(supabase: any, token: string, chatId: number, texto: string) {
-  const cpfDigits = texto.replace(/\D/g, '');
+  const match = texto.match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/);
+  const cpfDigits = match ? match[0].replace(/\D/g, '') : '';
   if (cpfDigits.length !== 11) {
     await enviarMensagem(token, chatId, 'Oi! Pra eu te reconhecer, manda seu CPF (só números, sem pontos).');
-    return;
+    return null;
   }
 
   const { data: entregador } = await supabase
@@ -170,7 +182,7 @@ async function tratarVinculo(supabase: any, token: string, chatId: number, texto
 
   if (!entregador) {
     await enviarMensagem(token, chatId, 'Não achei esse CPF no nosso cadastro. Confere os números e manda de novo, por favor.');
-    return;
+    return null;
   }
 
   await supabase.from('telegram_vinculos').upsert({
@@ -181,7 +193,8 @@ async function tratarVinculo(supabase: any, token: string, chatId: number, texto
   });
 
   const primeiroNome = (entregador.nome || '').trim().split(/\s+/)[0] || '';
-  await enviarMensagem(token, chatId, `Beleza, ${primeiroNome}! Já te reconheço agora. Pode pedir a troca de praça quando quiser.`);
+  await enviarMensagem(token, chatId, `Beleza, ${primeiroNome}! Já te reconheço agora.`);
+  return entregador; // {cpf, nome} -- chamador continua processando a mesma mensagem
 }
 
 async function classificarTroca(texto: string): Promise<{ eh_pedido_troca: boolean; praca_codigo: string | null } | null> {
