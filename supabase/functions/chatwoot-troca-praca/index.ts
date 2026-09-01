@@ -481,56 +481,10 @@ async function identificarEntregador(supabase: any, telefone: string | undefined
 async function executarClassificacao(supabase: any, chatwootToken: string, conversationId: number, msg: any, classificacao: Classificacao | null) {
   const telefone = msg?.sender?.phone_number || msg?.conversation?.contact_inbox?.source_id;
 
-  if (classificacao?.eh_pedido_deslogar) {
-    const entregador = await identificarEntregador(supabase, telefone, msg?.sender?.name);
-    if (!entregador) {
-      return { acao: 'ignorado_entregador_nao_identificado' };
-    }
-    // Deslogar precisa clicar no site (não é uma chamada de API como a
-    // troca de praça) -- só marca o pedido pendente aqui; robots/deslogar_processar.py
-    // (Playwright, GitHub Actions) executa de verdade e responde no Chatwoot
-    // quando terminar (ver supabase/deslogar_webhook.sql).
-    await supabase.from('deslogar_status').upsert({
-      cpf: entregador.cpf,
-      nome: entregador.nome,
-      conversation_id: conversationId,
-      pendente: true,
-      erro_msg: null,
-    });
-    return { acao: 'deslogar_pendente_criado' };
-  }
-
-  if (classificacao?.novato_etapa && classificacao.novato_etapa in NOVATO_RESPOSTAS) {
-    await responder(chatwootToken, conversationId, NOVATO_RESPOSTAS[classificacao.novato_etapa]);
-    return { acao: `novato_${classificacao.novato_etapa}` };
-  }
-
-  if (classificacao?.categoria && classificacao.categoria in RESPOSTAS_PRONTAS) {
-    // Pedido do usuário 10/08/2026: a mesma resposta pronta (ex.: repasse)
-    // estava sendo mandada de novo toda vez que a pessoa voltava a
-    // perguntar sobre o mesmo assunto na mesma conversa. Só manda uma vez
-    // por conversa+categoria POR DIA (não pra sempre -- é razoável alguém
-    // perguntar nesse mesmo assunto de novo dias depois) -- se já mandou
-    // hoje, fica em silêncio.
-    const { data: jaRespondida } = await supabase
-      .from('chatwoot_mensagens_processadas')
-      .select('message_id')
-      .eq('conversation_id', conversationId)
-      .eq('acao', `resposta_pronta_${classificacao.categoria}`)
-      .gte('processado_em', inicioDoDiaBrasiliaISO())
-      .limit(1)
-      .maybeSingle();
-    if (jaRespondida) {
-      return { acao: `resposta_pronta_${classificacao.categoria}_repetida_sem_resposta` };
-    }
-    await responder(chatwootToken, conversationId, RESPOSTAS_PRONTAS[classificacao.categoria]);
-    return { acao: `resposta_pronta_${classificacao.categoria}` };
-  }
-
-  if (classificacao?.saudacao && classificacao.saudacao in RESPOSTAS_SAUDACAO) {
-    await responder(chatwootToken, conversationId, RESPOSTAS_SAUDACAO[classificacao.saudacao]);
-    return { acao: `saudacao_${classificacao.saudacao}` };
-  }
+  // Pedido do usuário 27/08/2026: o bot passa a responder SÓ troca de praça.
+  // Deslogar, respostas prontas, boas-vindas de novato e saudação ficam
+  // desativados (a classificação ainda calcula esses campos -- só não agimos
+  // sobre eles aqui).
 
   if (!classificacao?.eh_pedido_troca || !classificacao.praca_codigo) {
     return { acao: 'ignorado_sem_resposta' };
