@@ -64,6 +64,10 @@
   .top .meta { font-size: 13px; color: var(--text-muted); text-align: right; }
   .top .meta b { color: var(--text); }
   .top .signout { font-size: 12px; color: var(--text-faint); cursor: pointer; text-decoration: underline; margin-left: 10px; }
+  .bot-toggle { display: inline-block; margin-left: 10px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); cursor: pointer; vertical-align: middle; }
+  .bot-toggle[data-status="on"] { background: #e8f7ee; color: #1a7a3d; border-color: #b6e6c6; }
+  .bot-toggle[data-status="off"] { background: #fdeceb; color: #b3271e; border-color: #f3c6c2; }
+  .bot-toggle[disabled] { opacity: 0.6; cursor: default; }
 
   .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 20px; }
   .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
@@ -200,6 +204,7 @@
     <div class="meta">
       <span id="d1DateLabel">D-1</span><br>
       <span class="signout" id="signOutBtn">recarregar</span>
+      <button type="button" id="botToggleBtn" class="bot-toggle" disabled>Bot: ...</button>
     </div>
   </header>
 
@@ -638,6 +643,57 @@
   document.getElementById('signOutBtn').addEventListener('click', function () {
     location.reload();
   });
+
+  // Liga/desliga o bot de troca de praça (pg_cron) via RPC -- funções
+  // security definer criadas em supabase/bot_toggle.sql, expostas via
+  // PostgREST (/rest/v1/rpc/<nome>).
+  function botRpc(nome) {
+    return fetch(SUPABASE_URL + '/rest/v1/rpc/' + nome, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    }).then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error(t); });
+      return r.json();
+    });
+  }
+
+  function renderBotToggle(ligado) {
+    var btn = document.getElementById('botToggleBtn');
+    btn.disabled = false;
+    btn.dataset.status = ligado ? 'on' : 'off';
+    btn.textContent = ligado ? 'Bot: Ligado' : 'Bot: Desligado';
+    btn.title = ligado ? 'Clique pra desligar o bot de troca de praça' : 'Clique pra ligar o bot de troca de praça';
+  }
+
+  function carregarStatusBot() {
+    botRpc('bot_troca_praca_status')
+      .then(function (ligado) { renderBotToggle(!!ligado); })
+      .catch(function () {
+        var btn = document.getElementById('botToggleBtn');
+        btn.textContent = 'Bot: erro';
+        btn.title = 'Não consegui checar o status -- confira se supabase/bot_toggle.sql já foi rodado no SQL Editor.';
+      });
+  }
+
+  document.getElementById('botToggleBtn').addEventListener('click', function () {
+    var btn = document.getElementById('botToggleBtn');
+    var ligadoAgora = btn.dataset.status === 'on';
+    btn.disabled = true;
+    btn.textContent = ligadoAgora ? 'Desligando…' : 'Ligando…';
+    botRpc(ligadoAgora ? 'bot_troca_praca_desligar' : 'bot_troca_praca_ligar')
+      .then(carregarStatusBot)
+      .catch(function (err) {
+        alert('Erro ao ' + (ligadoAgora ? 'desligar' : 'ligar') + ' o bot: ' + err.message);
+        carregarStatusBot();
+      });
+  });
+
+  carregarStatusBot();
 
   loadDashboard();
 
