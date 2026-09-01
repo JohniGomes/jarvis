@@ -1,9 +1,12 @@
 name: Sync Sem Corridas
 
 on:
-  schedule:
-    # 06:00 America/Sao_Paulo (UTC-3) = 09:00 UTC
-    - cron: '0 9 * * *'
+  # Agendamento automático DESATIVADO 27/08/2026 -- pedido do usuário, só o
+  # robô do Telegram (troca de praça) fica ativo por enquanto. Continua
+  # disponível pra rodar manualmente (workflow_dispatch) a qualquer hora.
+  # schedule:
+  #   # 06:00 America/Sao_Paulo (UTC-3) = 09:00 UTC
+  #   - cron: '0 9 * * *'
   workflow_dispatch: {}
 
 jobs:

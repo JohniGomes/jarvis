@@ -7,10 +7,13 @@ on:
   repository_dispatch:
     types: [deslogar-pendente]
   workflow_dispatch: {}
-  schedule:
-    # Rede de segurança: se o webhook do Supabase falhar por algum motivo,
-    # isso garante que nenhum pedido fica esquecido por mais de 10 min.
-    - cron: '7,17,27,37,47,57 * * * *'  # a cada 10 min, fora da hora cheia
+  # Rede de segurança DESATIVADA 27/08/2026 -- pedido do usuário, só o robô
+  # do Telegram (troca de praça) fica ativo por enquanto. O bot que gerava
+  # esses pedidos (chatwoot-troca-praca) também está desligado, então não
+  # há mais nada escrevendo em deslogar_status pra essa rede de segurança
+  # cobrir. Continua disponível via workflow_dispatch/repository_dispatch.
+  # schedule:
+  #   - cron: '7,17,27,37,47,57 * * * *'  # a cada 10 min, fora da hora cheia
 
 jobs:
   processar:

@@ -1,10 +1,13 @@
 name: Sync Elegibilidade (planilha)
 
 on:
-  schedule:
-    # De hora em hora, minuto 17 (fora da hora cheia, evita fila do
-    # GitHub Actions -- mesmo motivo documentado em sync-d1.yml).
-    - cron: '17 * * * *'
+  # Agendamento automático DESATIVADO 27/08/2026 -- pedido do usuário, só o
+  # robô do Telegram (troca de praça) fica ativo por enquanto. Continua
+  # disponível pra rodar manualmente (workflow_dispatch) a qualquer hora.
+  # schedule:
+  #   # De hora em hora, minuto 17 (fora da hora cheia, evita fila do
+  #   # GitHub Actions -- mesmo motivo documentado em sync-d1.yml).
+  #   - cron: '17 * * * *'
   workflow_dispatch: {}
 
 jobs:

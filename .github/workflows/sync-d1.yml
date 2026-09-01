@@ -1,26 +1,29 @@
 name: Sync D-1 (Performance)
 
 on:
-  schedule:
-    # 07:00 America/Sao_Paulo (UTC-3) = 10:00 UTC -- depois do relatório de
-    # ontem já estar fechado no franqueado. Minuto 7 (não 0) pra fugir do
-    # horário cheio do GitHub Actions -- runs marcadas pra hora exata (:00)
-    # competem com todo mundo e atrasam mais (aconteceu 06/08/2026, sumiu
-    # o run do dia).
-    - cron: '7 10 * * *'
-    # Rede de segurança: se a run das 07:00 falhar (proxy instável, mesmo
-    # problema recorrente), essas tentam de novo mais tarde. d1_sync já
-    # confere sozinho se o dia já está no banco e não faz nada se já
-    # estiver -- então rodar essas de graça todo dia não tem custo quando
-    # está tudo ok. Pedido do usuário 08/08/2026 (dia 06 sumiu de novo).
-    #
-    # As duas primeiras (07:25 e 07:45) existem especificamente pra
-    # garantir o dado pronto até as 08:00 -- pedido do usuário 10/08/2026
-    # ("preciso que 8h esteja atualizado sem falta").
-    - cron: '25 10 * * *'  # 07:25 BRT
-    - cron: '45 10 * * *'  # 07:45 BRT
-    - cron: '22 13 * * *'  # 10:22 BRT
-    - cron: '37 16 * * *'  # 13:37 BRT
+  # Agendamento automático DESATIVADO 27/08/2026 -- pedido do usuário, só o
+  # robô do Telegram (troca de praça) fica ativo por enquanto. Continua
+  # disponível pra rodar manualmente (workflow_dispatch) a qualquer hora.
+  # schedule:
+  #   # 07:00 America/Sao_Paulo (UTC-3) = 10:00 UTC -- depois do relatório de
+  #   # ontem já estar fechado no franqueado. Minuto 7 (não 0) pra fugir do
+  #   # horário cheio do GitHub Actions -- runs marcadas pra hora exata (:00)
+  #   # competem com todo mundo e atrasam mais (aconteceu 06/08/2026, sumiu
+  #   # o run do dia).
+  #   - cron: '7 10 * * *'
+  #   # Rede de segurança: se a run das 07:00 falhar (proxy instável, mesmo
+  #   # problema recorrente), essas tentam de novo mais tarde. d1_sync já
+  #   # confere sozinho se o dia já está no banco e não faz nada se já
+  #   # estiver -- então rodar essas de graça todo dia não tem custo quando
+  #   # está tudo ok. Pedido do usuário 08/08/2026 (dia 06 sumiu de novo).
+  #   #
+  #   # As duas primeiras (07:25 e 07:45) existem especificamente pra
+  #   # garantir o dado pronto até as 08:00 -- pedido do usuário 10/08/2026
+  #   # ("preciso que 8h esteja atualizado sem falta").
+  #   - cron: '25 10 * * *'  # 07:25 BRT
+  #   - cron: '45 10 * * *'  # 07:45 BRT
+  #   - cron: '22 13 * * *'  # 10:22 BRT
+  #   - cron: '37 16 * * *'  # 13:37 BRT
   workflow_dispatch:
     inputs:
       data_alvo:

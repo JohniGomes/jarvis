@@ -295,4 +295,19 @@ create index if not exists escalas_vagas_data_idx on escalas_vagas (data);
 
 alter table escalas_vagas enable row level security;
 drop policy if exists "escalas_vagas leitura publica" on escalas_vagas;
+
+-- ============================================================================
+-- telegram_vinculos: liga o chat_id do Telegram ao CPF do entregador --
+-- migração do bot de troca de praça (Chatwoot -> Telegram, 27/08/2026). No
+-- Telegram não tem telefone automático como o WhatsApp, então o bot pede o
+-- CPF na primeira mensagem de cada chat_id novo e grava aqui pra sempre
+-- reconhecer sozinho depois. Sem RLS pública -- só service_role mexe aqui
+-- (mesmo padrão de chatwoot_mensagens_processadas).
+-- ============================================================================
+create table if not exists telegram_vinculos (
+  chat_id bigint primary key,
+  cpf text not null,
+  nome text,
+  vinculado_em timestamptz not null default now()
+);
 create policy "escalas_vagas leitura publica" on escalas_vagas for select using (true);

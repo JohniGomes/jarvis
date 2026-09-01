@@ -8,10 +8,12 @@ on:
   repository_dispatch:
     types: [agendamento-pendente]
   workflow_dispatch: {}
-  schedule:
-    # Rede de segurança: se o webhook do Supabase falhar por algum motivo,
-    # isso garante que nenhum pendente fica esquecido por mais de 10 min.
-    - cron: '3,13,23,33,43,53 * * * *'  # a cada 10 min, fora da hora cheia
+  # Rede de segurança DESATIVADA 27/08/2026 -- pedido do usuário, só o robô
+  # do Telegram (troca de praça) fica ativo por enquanto. Continua
+  # disponível via workflow_dispatch/repository_dispatch (clique em
+  # Liberar/Bloquear no painel continua funcionando na hora).
+  # schedule:
+  #   - cron: '3,13,23,33,43,53 * * * *'  # a cada 10 min, fora da hora cheia
 
 jobs:
   processar:

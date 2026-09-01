@@ -1,9 +1,9 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="pt-br">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Robô Chatwoot</title>
+<title>Robô Telegram</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -38,7 +38,7 @@
 <body>
 
 <div class="card">
-  <h1>Robô do Chatwoot (troca de praça, deslogar, novato)</h1>
+  <h1>Robô do Telegram (troca de praça)</h1>
   <div id="content">
     <p class="loading">Carregando…</p>
   </div>
@@ -58,13 +58,13 @@
         '</button>' +
       '</div>' +
       '<div class="state ' + (ativo ? 'state--on' : 'state--off') + '" id="stateLabel">' + (ativo ? 'Ligado' : 'Desligado') + '</div>' +
-      '<p class="hint">Desligar para tudo na hora -- troca de praça, deslogar do turno e o fluxo de boas-vindas do novato. Ligue de novo quando tiver corrigido.</p>';
+      '<p class="hint">Desligar para o robô de troca de praça na hora. Ligue de novo quando tiver corrigido.</p>';
 
     document.getElementById('switchBtn').addEventListener('click', function () {
       var btn = this;
       var novoValor = btn.getAttribute('aria-pressed') !== 'true';
       btn.disabled = true;
-      fetch(SUPABASE_URL + '/rest/v1/automacao_config?chave=eq.chatwoot_bot', {
+      fetch(SUPABASE_URL + '/rest/v1/automacao_config?chave=eq.telegram_bot', {
         method: 'PATCH',
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -85,7 +85,7 @@
     });
   }
 
-  fetch(SUPABASE_URL + '/rest/v1/automacao_config?chave=eq.chatwoot_bot&select=ativo', {
+  fetch(SUPABASE_URL + '/rest/v1/automacao_config?chave=eq.telegram_bot&select=ativo', {
     headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY },
   })
     .then(function (r) { return r.json(); })
