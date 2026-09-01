@@ -131,8 +131,14 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ ok: true });
   } catch (err) {
+    // Bug real 27/08/2026: isso devolvia {ok:true} (200) mesmo em erro
+    // interno de verdade (ex.: tabela faltando) -- o Telegram entendia como
+    // "entregue com sucesso" e NUNCA reenviava a mensagem, perdendo pedidos
+    // de troca de praça de verdade sem ninguém saber. Agora devolve 500 pra
+    // erro genuíno -- o Telegram reenvia automaticamente por até 24h
+    // (backoff próprio dele) até a causa ser corrigida.
     console.error('Erro no telegram-bot:', err);
-    return jsonResponse({ ok: true }); // não deixa o Telegram ficar reenviando
+    return jsonResponse({ ok: false, error: String(err) }, 500);
   }
 });
 
